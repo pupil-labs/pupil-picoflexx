@@ -29,6 +29,8 @@ world - [WARNING] plugin: Failed to load 'picoflexx'. Reason: '<reason>'
 
 ## Usage
 
+### Backend
+
 1. Connect your Pico Flexx to the computer
 1. Start Capture
 1. Select the `UVC Manager` menu on the right
@@ -36,3 +38,10 @@ world - [WARNING] plugin: Failed to load 'picoflexx'. Reason: '<reason>'
 1. Click `Activate Pico Flexx`
 
 You should see a color map of the camera's depth output.
+
+### Example Plugin
+
+1. Run the backend usage steps above
+1. Enable the `Example Picoflexx Plugin` in the `Plugin Manager` menu
+
+See the `example.plugin.py` file on how to access the depth data from the backend.
