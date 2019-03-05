@@ -26,7 +26,7 @@ from video_capture.base_backend import Base_Manager, Base_Source, Playback_Sourc
 logger = logging.getLogger(__name__)
 
 try:
-    import picoflexx.roypy
+    import picoflexx.roypy as roypy
     from picoflexx.roypy_platform_utils import PlatformHelper
 except ImportError:
     import traceback
