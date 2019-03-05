@@ -197,7 +197,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera = None
 
     def set_usecase(self, usecase):
+        if self.camera.isCapturing():
+            self.camera.stopCapture()
         self.camera.setUseCase(usecase)
+        self.camera.startCapture()
 
     def recent_events(self, events):
         frame = self.get_frame()
