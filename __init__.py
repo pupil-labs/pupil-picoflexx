@@ -18,6 +18,7 @@ import numpy as np
 from pyglui import ui
 
 import cv2
+import cython_methods
 from camera_models import Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
@@ -38,19 +39,50 @@ except ImportError:
 class Frame(object):
     """docstring of Frame"""
 
-    def __init__(self, timestamp, img, index):
-        self.timestamp = timestamp
-        self._img = img
-        self.bgr = img
-        self.height, self.width, _ = img.shape
-        self._gray = None
-        self.index = index
+    current_index = 0
+
+    def __init__(self, depth_data):
+        self.timestamp = depth_data.timeStamp
+        self._data = np.array(
+            [
+                (
+                    depth_data.getX(i),  # float32 [meter]
+                    depth_data.getY(i),  # float32 [meter]
+                    depth_data.getZ(i),  # float32 [meter]
+                    depth_data.getNoise(i),  # float32 [meter]
+                    depth_data.getGrayValue(i),  # uint16
+                    # uint8 (0: invalid, 255: full confidence)
+                    depth_data.getDepthConfidence(i),
+                )
+                for i in range(depth_data.getNumPoints())
+            ],
+            dtype=[
+                ("x", np.float32),
+                ("y", np.float32),
+                ("z", np.float32),
+                ("noise", np.float32),
+                ("grayValue", np.uint16),
+                ("depthConfidence", np.uint8),
+            ],
+        ).view(np.recarray)
+
+        self.height = depth_data.height
+        self.width = depth_data.width
+        self.index = self.current_index
+        self.current_index += 1
+
         # indicate that the frame does not have a native yuv or jpeg buffer
         self.yuv_buffer = None
         self.jpeg_buffer = None
 
+        self._img = None
+        self._gray = None
+
     @property
     def img(self):
+        if self._img is None:
+            gray_values = self._data.grayValue.reshape(self.height, self.width)
+            self._img = cython_methods.cumhist_color_map16(gray_values)
         return self._img
 
     @property
@@ -59,9 +91,21 @@ class Frame(object):
             self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         return self._gray
 
-    @gray.setter
-    def gray(self, value):
-        raise Exception("Read only.")
+    @property
+    def bgr(self):
+        return self.img
+
+    @property
+    def confidence(self):
+        return self._data.depthConfidence.reshape(self.height, self.width)
+
+    @property
+    def noise(self):
+        return self._data.noise.reshape(self.height, self.width)
+
+    @property
+    def dense_pointcloud(self):
+        return self._data[["x", "y", "z"]]
 
 
 class DepthDataListener(roypy.IDepthDataListener):
@@ -71,14 +115,7 @@ class DepthDataListener(roypy.IDepthDataListener):
 
     def onNewData(self, data):
         try:
-            zvalues = []
-            for i in range(data.getNumPoints()):
-                zvalues.append(data.getZ(i))
-            zarray = np.asarray(zvalues)
-            p = zarray.reshape(-1, data.width)
-            p = 255 * p / p.max()
-            p = cv2.applyColorMap(p.astype(np.uint8), cv2.COLORMAP_JET)
-            self.queue.put(p)
+            self.queue.put(Frame(data))
         except Exception:
             import traceback
 
@@ -86,25 +123,26 @@ class DepthDataListener(roypy.IDepthDataListener):
 
 
 class Picoflexx_Source(Playback_Source, Base_Source):
-    def __init__(self, g_pool, cam_id=None, *args, **kwargs):
+    def __init__(self, g_pool, color_z_min=0.4, color_z_max=1.0, *args, **kwargs):
         super().__init__(g_pool, *args, **kwargs)
+        self.color_z_min = color_z_min
+        self.color_z_max = color_z_max
 
-        self._online = False
+        self.camera = None
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
-        self.init_device(cam_id)
+        self.init_device()
 
         self.fps = 30
         self.frame_count = 0
 
-    def init_device(self, cam_id):
+    def init_device(self):
         cam_manager = roypy.CameraManager()
-        if not cam_id:
-            try:
-                cam_id = cam_manager.getConnectedCameraList()[0]
-            except IndexError:
-                logger.error("No Pico Flexx camera connected")
-                return
+        try:
+            cam_id = cam_manager.getConnectedCameraList()[0]
+        except IndexError:
+            logger.error("No Pico Flexx camera connected")
+            return
 
         self.camera_id = cam_id
         self.camera = cam_manager.createCamera(cam_id)
@@ -124,10 +162,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.remove_menu()
 
     def cleanup(self):
-        if self.camera.isConnected() and self.camera.isCapturing():
-            self.camera.stopCapture()
-        self.camera.unregisterDataListener()
-        self.camera = None
+        if self.camera:
+            if self.camera.isConnected() and self.camera.isCapturing():
+                self.camera.stopCapture()
+            self.camera.unregisterDataListener()
+            self.camera = None
 
     def recent_events(self, events):
         frame = self.get_frame()
@@ -137,15 +176,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def get_frame(self):
         try:
-            data = self.queue.get(True, 0.02)
+            frame = self.queue.get(True, 0.02)
         except queue.Empty:
             return
 
-        frame_count = self.frame_count
-        self.frame_count += 1
-        timestamp = self.g_pool.get_timestamp()
+        # Given: timestamp in microseconds precision (time since epoch 1970)
+        # Overwrite with Capture timestamp
+        frame.timestamp = self.g_pool.get_timestamp()
 
-        return Frame(timestamp, data, frame_count)
+        return frame
 
     @property
     def frame_size(self):
@@ -198,7 +237,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def online(self):
-        return self._online and self.camera.isConnected() and self.camera.isCapturing()
+        return self.camera and self.camera.isConnected() and self.camera.isCapturing()
 
 
 class Picoflexx_Manager(Base_Manager):
@@ -218,15 +257,8 @@ class Picoflexx_Manager(Base_Manager):
         self.menu.append(ui.Button("Activate Pico Flexx", self.activate_source))
 
     def activate_source(self):
-        cam_manager = roypy.CameraManager()
-        devices = cam_manager.getConnectedCameraList()
-        if not devices:
-            logger.error("No Pico Flexx camera connected")
-            return
-
         settings = {}
         settings["name"] = "Picoflexx_Source"
-        settings["cam_id"] = devices[0]
         # if the user set fake capture, we dont want it to auto jump back to the old capture.
         if self.g_pool.process == "world":
             self.notify_all(
@@ -238,14 +270,6 @@ class Picoflexx_Manager(Base_Manager):
             )
         else:
             logger.warning("Pico Flexx backend is not supported in the eye process.")
-            # self.notify_all(
-            #     {
-            #         "subject": "start_eye_capture",
-            #         "target": self.g_pool.process,
-            #         "name": "Picoflexx_Source",
-            #         "args": settings,
-            #     }
-            # )
 
     def deinit_ui(self):
         self.remove_menu()
