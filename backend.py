@@ -82,8 +82,10 @@ class Frame(object):
     @property
     def img(self):
         if self._img is None:
-            gray_values = self._data.grayValue.reshape(self.height, self.width)
-            self._img = cython_methods.cumhist_color_map16(gray_values)
+            depth_values = self._data.z.reshape(self.height, self.width)
+            depth_values = (2 ** 16) * depth_values / depth_values.max()
+            depth_values = depth_values.astype(np.uint16)
+            self._img = cython_methods.cumhist_color_map16(depth_values)
         return self._img
 
     @property
