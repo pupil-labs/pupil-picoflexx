@@ -42,7 +42,8 @@ class Frame(object):
     current_index = 0
 
     def __init__(self, depth_data):
-        self.timestamp = depth_data.timeStamp
+        # self.timestamp = depth_data.timeStamp  # Not memory safe!
+        self.timestamp = None
         self._data = np.array(
             [
                 (
@@ -154,9 +155,36 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def init_ui(self):  # was gui
         self.add_menu()
         self.menu.label = "Pico Flexx"
+        self.update_ui()
+
+    def update_ui(self):
+        del self.menu[:]
 
         text = ui.Info_Text("Pico Flexx Options")
         self.menu.append(text)
+
+        if self.online:
+            use_cases = self.camera.getUseCases()
+            use_cases = [
+                use_cases[uc]
+                for uc in range(use_cases.size())
+                if "MIXED" not in use_cases[uc]
+            ]
+            default = "Select to activate"
+            use_cases.insert(0, default)
+
+            self.menu.append(
+                ui.Selector(
+                    "selected_usecase",
+                    selection=use_cases,
+                    getter=lambda: default,
+                    setter=self.set_usecase,
+                    label="Activate usecase",
+                )
+            )
+        else:
+            text = ui.Info_Text("Pico Flexx needs to be reactivated")
+            self.menu.append(text)
 
     def deinit_ui(self):
         self.remove_menu()
@@ -167,6 +195,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 self.camera.stopCapture()
             self.camera.unregisterDataListener()
             self.camera = None
+
+    def set_usecase(self, usecase):
+        self.camera.setUseCase(usecase)
 
     def recent_events(self, events):
         frame = self.get_frame()
