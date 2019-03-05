@@ -116,7 +116,9 @@ class DepthDataListener(roypy.IDepthDataListener):
 
     def onNewData(self, data):
         try:
-            self.queue.put(Frame(data))
+            self.queue.put(Frame(data), block=False)
+        except queue.Full:
+            pass  # dropping frame
         except Exception:
             import traceback
 
