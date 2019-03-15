@@ -19,7 +19,7 @@ from pyglui import ui
 
 import cv2
 import cython_methods
-from camera_models import load_intrinsics
+from camera_models import load_intrinsics, Radial_Dist_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -69,6 +69,7 @@ class Frame(object):
 
         self.height = depth_data.height
         self.width = depth_data.width
+        self.shape = depth_data.height, depth_data.width, 3
         self.index = self.current_index
         self.current_index += 1
 
@@ -281,6 +282,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def intrinsics(self):
+        return Radial_Dist_Camera(
+            [[212.924133, 0, 117.875443], [0.0, 212.924133, 87.564507], [0, 0, 1]],
+            [0.288401, -3.919852, 0, 0, 6.981279],
+            self.frame_size,
+            self.name,
+        )
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
             self._intrinsics = load_intrinsics(
                 self.g_pool.user_dir, self.name, self.frame_size
