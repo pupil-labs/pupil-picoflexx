@@ -277,6 +277,18 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def online(self):
         return self.camera and self.camera.isConnected() and self.camera.isCapturing()
 
+    @property
+    def intrinsics(self):
+        if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
+            self._intrinsics = load_intrinsics(
+                self.g_pool.user_dir, self.name, self.frame_size
+            )
+        return self._intrinsics
+
+    @intrinsics.setter
+    def intrinsics(self, model):
+        self._intrinsics = model
+
 
 class Picoflexx_Manager(Base_Manager):
     """Simple manager to explicitly activate a fake source"""
