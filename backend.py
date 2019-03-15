@@ -19,7 +19,7 @@ from pyglui import ui
 
 import cv2
 import cython_methods
-from camera_models import Dummy_Camera
+from camera_models import load_intrinsics
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -128,6 +128,8 @@ class DepthDataListener(roypy.IDepthDataListener):
 
 
 class Picoflexx_Source(Playback_Source, Base_Source):
+    name = "Picoflexx"
+
     def __init__(self, g_pool, color_z_min=0.4, color_z_max=1.0, *args, **kwargs):
         super().__init__(g_pool, *args, **kwargs)
         self.color_z_min = color_z_min
