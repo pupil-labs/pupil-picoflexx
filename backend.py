@@ -35,6 +35,15 @@ except ImportError:
     logger.info("Pico Flexx backend requirements not installed properly")
     raise
 
+try:
+    from . import roypy_backend
+except ImportError:
+    import traceback
+
+    roypy_backend = None
+    logger.warning(traceback.format_exc())
+    logger.warning("Failed to load roypy_backend extension, falling back to roypy")
+
 
 class Frame(object):
     """docstring of Frame"""
@@ -44,28 +53,31 @@ class Frame(object):
     def __init__(self, depth_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
-        self._data = np.array(
-            [
-                (
-                    depth_data.getX(i),  # float32 [meter]
-                    depth_data.getY(i),  # float32 [meter]
-                    depth_data.getZ(i),  # float32 [meter]
-                    depth_data.getNoise(i),  # float32 [meter]
-                    depth_data.getGrayValue(i),  # uint16
-                    # uint8 (0: invalid, 255: full confidence)
-                    depth_data.getDepthConfidence(i),
-                )
-                for i in range(depth_data.getNumPoints())
-            ],
-            dtype=[
-                ("x", np.float32),
-                ("y", np.float32),
-                ("z", np.float32),
-                ("noise", np.float32),
-                ("grayValue", np.uint16),
-                ("depthConfidence", np.uint8),
-            ],
-        ).view(np.recarray)
+        if roypy_backend:
+            self._data = roypy_backend.get_backend_data(depth_data)
+        else:
+            self._data = np.array(
+                [
+                    (
+                        depth_data.getX(i),  # float32 [meter]
+                        depth_data.getY(i),  # float32 [meter]
+                        depth_data.getZ(i),  # float32 [meter]
+                        depth_data.getNoise(i),  # float32 [meter]
+                        depth_data.getGrayValue(i),  # uint16
+                        # uint8 (0: invalid, 255: full confidence)
+                        depth_data.getDepthConfidence(i),
+                    )
+                    for i in range(depth_data.getNumPoints())
+                ],
+                dtype=[
+                    ("x", np.float32),
+                    ("y", np.float32),
+                    ("z", np.float32),
+                    ("noise", np.float32),
+                    ("grayValue", np.uint16),
+                    ("depthConfidence", np.uint8),
+                ],
+            ).view(np.recarray)
 
         self.height = depth_data.height
         self.width = depth_data.width
