@@ -19,7 +19,7 @@ from pyglui import ui
 
 import cv2
 import cython_methods
-from camera_models import load_intrinsics
+from camera_models import load_intrinsics, Radial_Dist_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -32,7 +32,16 @@ except ImportError:
     import traceback
 
     logger.debug(traceback.format_exc())
-    logger.info("Pico Flexx backend requirements not installed properly")
+    logger.info("Pico Flexx backend requirements (roypy) not installed properly")
+    raise
+
+try:
+    from . import roypycy
+except ImportError:
+    import traceback
+
+    logger.debug(traceback.format_exc())
+    logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
     raise
 
 
@@ -44,31 +53,11 @@ class Frame(object):
     def __init__(self, depth_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
-        self._data = np.array(
-            [
-                (
-                    depth_data.getX(i),  # float32 [meter]
-                    depth_data.getY(i),  # float32 [meter]
-                    depth_data.getZ(i),  # float32 [meter]
-                    depth_data.getNoise(i),  # float32 [meter]
-                    depth_data.getGrayValue(i),  # uint16
-                    # uint8 (0: invalid, 255: full confidence)
-                    depth_data.getDepthConfidence(i),
-                )
-                for i in range(depth_data.getNumPoints())
-            ],
-            dtype=[
-                ("x", np.float32),
-                ("y", np.float32),
-                ("z", np.float32),
-                ("noise", np.float32),
-                ("grayValue", np.uint16),
-                ("depthConfidence", np.uint8),
-            ],
-        ).view(np.recarray)
+        self._data = roypycy.get_backend_data(depth_data)
 
         self.height = depth_data.height
         self.width = depth_data.width
+        self.shape = depth_data.height, depth_data.width, 3
         self.index = self.current_index
         self.current_index += 1
 
@@ -143,6 +132,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.fps = 30
         self.frame_count = 0
 
+        self._ui_exposure = None
+        self._current_exposure = (
+            0
+        )  # TODO obtain current exposure from most recent DepthData event
+        self._current_exposure_mode = False
+
     def init_device(self):
         cam_manager = roypy.CameraManager()
         try:
@@ -156,6 +151,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
         self.camera.startCapture()
+        roypycy.set_exposure_mode(self.camera, 1)
+        self._current_exposure_mode = self.get_exposure_mode()
         self._online = True
 
     def init_ui(self):  # was gui
@@ -188,6 +185,28 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     label="Activate usecase",
                 )
             )
+
+            exposure_limits = self.camera.getExposureLimits()
+            self.menu.append(
+                ui.Slider(
+                    "selected_exposure",
+                    min=exposure_limits.first,
+                    max=exposure_limits.second,
+                    getter=lambda: self._current_exposure,
+                    setter=self.set_exposure_delayed,
+                    label="Exposure",
+                )
+            )
+            self._ui_exposure = self.menu[-1]
+
+            self.menu.append(
+                ui.Switch(
+                    "selected_exposure_mode",
+                    getter=lambda: self._current_exposure_mode,
+                    setter=self.set_exposure_mode,
+                    label="Auto Exposure",
+                )
+            )
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -202,11 +221,47 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera.unregisterDataListener()
             self.camera = None
 
+    def on_notify(self, notification):
+        if notification["subject"] == "picoflexx.set_exposure":
+            self.set_exposure(notification["exposure"])
+
     def set_usecase(self, usecase):
         if self.camera.isCapturing():
             self.camera.stopCapture()
         self.camera.setUseCase(usecase)
+
+        # Update UI with expsoure limits of this use case
+        exposure_limits = self.camera.getExposureLimits()
+        self._ui_exposure.minimum = exposure_limits.first
+        self._ui_exposure.maximum = exposure_limits.second
+        if self._current_exposure > exposure_limits.second:
+            # Exposure is implicitly clamped to new max
+            self._current_exposure = exposure_limits.second
+
         self.camera.startCapture()
+
+    def set_exposure_delayed(self, exposure):
+        self.notify_all(
+            {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
+        )
+
+    def set_exposure(self, exposure):
+        status = self.camera.setExposureTime(exposure)
+        if status != 0:
+            logger.warning(
+                "setExposureTime: Non-zero return: {} - {}".format(
+                    status, roypy.getStatusString(status)
+                )
+            )
+
+        self._current_exposure = exposure
+
+    def get_exposure_mode(self):
+        return roypycy.get_exposure_mode(self.camera) == 1
+
+    def set_exposure_mode(self, exposure_mode):
+        roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+        self._current_exposure_mode = exposure_mode
 
     def recent_events(self, events):
         frame = self.get_frame()
@@ -282,14 +337,19 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     @property
     def intrinsics(self):
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
-            self._intrinsics = load_intrinsics(
-                self.g_pool.user_dir, self.name, self.frame_size
-            )
+            lens_params = roypycy.get_lens_parameters(self.camera)
+            c_x, c_y = lens_params["principalPoint"]
+            f_x, f_y = lens_params["focalLength"]
+            p_1, p_2 = lens_params["distortionTangential"]
+            k_1, k_2, *k_other = lens_params["distortionRadial"]
+            K = [[f_x, 0.0, c_x], [0.0, f_y, c_y], [0.0, 0.0, 1.0]]
+            D = k_1, k_2, p_1, p_2, *k_other
+            self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)
         return self._intrinsics
 
     @intrinsics.setter
     def intrinsics(self, model):
-        self._intrinsics = model
+        logger.error("Picoflexx backend does not support setting intrinsics manually")
 
 
 class Picoflexx_Manager(Base_Manager):
