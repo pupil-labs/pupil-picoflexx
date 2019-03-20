@@ -32,17 +32,17 @@ except ImportError:
     import traceback
 
     logger.debug(traceback.format_exc())
-    logger.info("Pico Flexx backend requirements not installed properly")
+    logger.info("Pico Flexx backend requirements (roypy) not installed properly")
     raise
 
 try:
-    from . import roypy_backend
+    from . import roypycy
 except ImportError:
     import traceback
 
-    roypy_backend = None
-    logger.warning(traceback.format_exc())
-    logger.warning("Failed to load roypy_backend extension, falling back to roypy")
+    logger.debug(traceback.format_exc())
+    logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
+    raise
 
 
 class Frame(object):
@@ -53,31 +53,7 @@ class Frame(object):
     def __init__(self, depth_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
-        if roypy_backend:
-            self._data = roypy_backend.get_backend_data(depth_data)
-        else:
-            self._data = np.array(
-                [
-                    (
-                        depth_data.getX(i),  # float32 [meter]
-                        depth_data.getY(i),  # float32 [meter]
-                        depth_data.getZ(i),  # float32 [meter]
-                        depth_data.getNoise(i),  # float32 [meter]
-                        depth_data.getGrayValue(i),  # uint16
-                        # uint8 (0: invalid, 255: full confidence)
-                        depth_data.getDepthConfidence(i),
-                    )
-                    for i in range(depth_data.getNumPoints())
-                ],
-                dtype=[
-                    ("x", np.float32),
-                    ("y", np.float32),
-                    ("z", np.float32),
-                    ("noise", np.float32),
-                    ("grayValue", np.uint16),
-                    ("depthConfidence", np.uint8),
-                ],
-            ).view(np.recarray)
+        self._data = roypycy.get_backend_data(depth_data)
 
         self.height = depth_data.height
         self.width = depth_data.width
@@ -172,7 +148,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
         self.camera.startCapture()
-        roypy_backend.set_exposure_mode(self.camera, 1)
+        roypycy.set_exposure_mode(self.camera, 1)
         self._current_exposure_mode = self.get_exposure_mode()
         self._online = True
 
@@ -214,7 +190,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     min=exposure_limits.first,
                     max=exposure_limits.second,
                     getter=lambda: self._current_exposure,
-                    setter=self.set_exposure,
+                    setter=self.set_exposure_delayed,
                     label="Exposure",
                 )
             )
@@ -242,6 +218,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera.unregisterDataListener()
             self.camera = None
 
+    def on_notify(self, notification):
+        if notification["subject"] == "picoflexx.set_exposure":
+            self.set_exposure(notification["exposure"])
+
     def set_usecase(self, usecase):
         if self.camera.isCapturing():
             self.camera.stopCapture()
@@ -257,29 +237,28 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
         self.camera.startCapture()
 
-    def set_exposure(self, exposure):
-        for i in range(4):
-            try:
-                status = self.camera.setExposureTime(exposure)
-                if status != 0:
-                    logger.warning("setExposureTime: Non-zero return: {} - {}".format(status, roypy.getStatusString(status)))
+    def set_exposure_delayed(self, exposure):
+        self.notify_all(
+            {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
+        )
 
-                self._current_exposure = exposure
-                break
-            except RuntimeError:  # Device can still be busy, esp. while dragging slider
-                sleep(0.05)
+    def set_exposure(self, exposure):
+        status = self.camera.setExposureTime(exposure)
+        if status != 0:
+            logger.warning(
+                "setExposureTime: Non-zero return: {} - {}".format(
+                    status, roypy.getStatusString(status)
+                )
+            )
+
+        self._current_exposure = exposure
 
     def get_exposure_mode(self):
-        return roypy_backend.get_exposure_mode(self.camera) == 1
+        return roypycy.get_exposure_mode(self.camera) == 1
 
     def set_exposure_mode(self, exposure_mode):
-        for i in range(4):
-            try:
-                roypy_backend.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
-                self._current_exposure_mode = exposure_mode
-                return
-            except RuntimeError:
-                sleep(0.05)
+        roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+        self._current_exposure_mode = exposure_mode
 
     def recent_events(self, events):
         frame = self.get_frame()

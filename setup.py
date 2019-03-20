@@ -4,15 +4,14 @@ from distutils.core import setup
 
 extensions = [
     Extension(
-        'roypy_backend', ['roypycy.pyx'],
-        library_dirs=['.'],
-        libraries=['royale'],
-        include_dirs=['include'],
-        language='c++',
+        "roypycy",
+        ["roypycy.pyx"],
+        library_dirs=["."],
+        libraries=["royale"],
+        include_dirs=["include"],
+        language="c++",
+        extra_compile_args=["-std=c++0x"],
     )
 ]
 
-setup(
-    name="Pico Flexx",
-    ext_modules=cythonize(extensions),
-)
+setup(name="Pico Flexx", ext_modules=cythonize(extensions))

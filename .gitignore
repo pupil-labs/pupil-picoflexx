@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+*.cpp
 
 # Distribution / packaging
 .Python
@@ -115,20 +116,17 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# libroyale
 libroyale\.3\.20\.0\.dylib
-
 libroyale\.dylib
-
 libspectre3\.dylib
-
 roypy_platform_utils\.py
-
 roypy_sample_utils\.py
-
 roypy\.py
-
 sample_camera_info\.py
-
 sample_record_rrf\.py
-
 sample_retrieve_data\.py
+include
+
+# macOS
+.DS_Store
