@@ -25,6 +25,19 @@ cdef extern from "royale/Vector.hpp" namespace "royale":
         iterator end()
         size_t count()
 
+cdef extern from "royale/Pair.hpp" namespace "royale":
+    cdef cppclass Pair[T, U]:
+        Pair()
+        T first
+        U second
+
+cdef extern from "royale/LensParameters.hpp" namespace "royale":
+    ctypedef struct LensParameters:
+        Pair[float, float]     principalPoint;       #!< cx/cy
+        Pair[float, float]     focalLength;          #!< fx/fy
+        Pair[float, float]     distortionTangential; #!< p1/p2
+        Vector[float]          distortionRadial;     #!< k1/k2/k3
+
 cdef extern from "royale/DepthData.hpp" namespace "royale":
     ctypedef struct DepthData:
         int                         version;         # !< version number of the data format
@@ -52,6 +65,7 @@ cdef extern from "royale/ICameraDevice.hpp" namespace "royale":
     cdef cppclass ICameraDevice:
         int getExposureMode(ExposureMode &exposureMode, uint16_t streamId)
         int setExposureMode(ExposureMode exposureMode, uint16_t streamId)
+        int getLensParameters(LensParameters &params)
 
 
 def get_depth_data(depthdata):
@@ -68,6 +82,21 @@ def get_depth_data(depthdata):
         i += 1
 
     return result
+
+
+def get_lens_parameters(camera):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+
+    cdef LensParameters params;
+    mycpp_ptr[0][0].getLensParameters(params)
+
+    return {
+        'principalPoint': (params.principalPoint.first, params.principalPoint.second),
+        'focalLength': (params.focalLength.first, params.focalLength.second),
+        'distortionTangential': (params.distortionTangential.first, params.distortionTangential.second),
+        'distortionRadial': tuple(x for x in params.distortionRadial),
+    }
 
 
 def get_exposure_mode(camera):
