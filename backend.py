@@ -155,6 +155,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.fps = 30
         self.frame_count = 0
 
+        self._ui_exposure = None
+        self._current_exposure = 0  # TODO obtain current exposure from most recent DepthData event
+
     def init_device(self):
         cam_manager = roypy.CameraManager()
         try:
@@ -200,6 +203,19 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     label="Activate usecase",
                 )
             )
+
+            exposure_limits = self.camera.getExposureLimits()
+            self.menu.append(
+                ui.Slider(
+                    "selected_exposure",
+                    min=exposure_limits.first,
+                    max=exposure_limits.second,
+                    getter=lambda: self._current_exposure,
+                    setter=self.set_exposure,
+                    label="Exposure",
+                )
+            )
+            self._ui_exposure = self.menu[-1]
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -218,7 +234,31 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         if self.camera.isCapturing():
             self.camera.stopCapture()
         self.camera.setUseCase(usecase)
+
+        # Update UI with expsoure limits of this use case
+        exposure_limits = self.camera.getExposureLimits()
+        self._ui_exposure.minimum = exposure_limits.first
+        self._ui_exposure.maximum = exposure_limits.second
+        if self._current_exposure > exposure_limits.second:
+            # Exposure is implicitly clamped to new max
+            self._current_exposure = exposure_limits.second
+
         self.camera.startCapture()
+
+    def set_exposure(self, exposure):
+        for i in range(4):
+            try:
+                status = self.camera.setExposureTime(exposure)
+                if status != 0:
+                    logger.warning("setExposureTime: Non-zero return: {} - {}".format(status, roypy.getStatusString(status)))
+
+                self._current_exposure = exposure
+                break
+            except RuntimeError:  # Device can still be busy, esp. while dragging slider
+                sleep(0.05)
+
+            except RuntimeError:
+                sleep(0.05)
 
     def recent_events(self, events):
         frame = self.get_frame()
