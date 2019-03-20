@@ -5,6 +5,8 @@ from distutils.core import setup
 extensions = [
     Extension(
         'roypy_backend', ['roypycy.pyx'],
+        library_dirs=['.'],
+        libraries=['royale'],
         include_dirs=['include'],
         language='c++',
     )

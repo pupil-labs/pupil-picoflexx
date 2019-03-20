@@ -157,6 +157,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
         self._ui_exposure = None
         self._current_exposure = 0  # TODO obtain current exposure from most recent DepthData event
+        self._current_exposure_mode = False
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -171,6 +172,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
         self.camera.startCapture()
+        roypy_backend.set_exposure_mode(self.camera, 1)
+        self._current_exposure_mode = self.get_exposure_mode()
         self._online = True
 
     def init_ui(self):  # was gui
@@ -216,6 +219,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
             self._ui_exposure = self.menu[-1]
+
+            self.menu.append(
+                ui.Switch(
+                    "selected_exposure_mode",
+                    getter=lambda: self._current_exposure_mode,
+                    setter=self.set_exposure_mode,
+                    label="Auto Exposure",
+                )
+            )
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -257,6 +269,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             except RuntimeError:  # Device can still be busy, esp. while dragging slider
                 sleep(0.05)
 
+    def get_exposure_mode(self):
+        return roypy_backend.get_exposure_mode(self.camera) == 1
+
+    def set_exposure_mode(self, exposure_mode):
+        for i in range(4):
+            try:
+                roypy_backend.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+                self._current_exposure_mode = exposure_mode
+                return
             except RuntimeError:
                 sleep(0.05)
 

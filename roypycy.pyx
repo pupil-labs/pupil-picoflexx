@@ -43,6 +43,16 @@ cdef extern from "royale/DepthData.hpp" namespace "royale":
         uint16_t grayValue;      # !< 16-bit gray value
         uint8_t depthConfidence; # !< value from 0 (invalid) to 255 (full confidence)
 
+cdef extern from "royale/ExposureMode.hpp" namespace "royale":
+    ctypedef enum ExposureMode:
+        MANUAL 'royale::ExposureMode::MANUAL',         # !< Camera exposure mode set to manual
+        AUTOMATIC 'royale::ExposureMode::AUTOMATIC'    # !< Camera exposure mode set to automatic
+
+cdef extern from "royale/ICameraDevice.hpp" namespace "royale":
+    cdef cppclass ICameraDevice:
+        int getExposureMode(ExposureMode &exposureMode, uint16_t streamId)
+        int setExposureMode(ExposureMode exposureMode, uint16_t streamId)
+
 
 def get_depth_data(depthdata):
     cdef SwigPyObject *swig_obj = <SwigPyObject*>depthdata.this
@@ -58,6 +68,31 @@ def get_depth_data(depthdata):
         i += 1
 
     return result
+
+
+def get_exposure_mode(camera):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+
+    cdef ExposureMode exp;
+    mycpp_ptr[0][0].getExposureMode(exp, 0)
+
+    return <int>exp
+
+
+def set_exposure_mode(camera, mode):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+
+    cdef ExposureMode exp_mode;
+    if mode == 0:
+        exp_mode = ExposureMode.MANUAL
+    elif mode == 1:
+        exp_mode = ExposureMode.AUTOMATIC
+    else:
+        raise ValueError('Invalid mode')
+
+    mycpp_ptr[0][0].setExposureMode(exp_mode, 0)
 
 
 @cython.boundscheck(False)  # Deactivate bounds checking
