@@ -32,7 +32,16 @@ except ImportError:
     import traceback
 
     logger.debug(traceback.format_exc())
-    logger.info("Pico Flexx backend requirements not installed properly")
+    logger.info("Pico Flexx backend requirements (roypy) not installed properly")
+    raise
+
+try:
+    from . import roypycy
+except ImportError:
+    import traceback
+
+    logger.debug(traceback.format_exc())
+    logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
     raise
 
 
@@ -44,28 +53,7 @@ class Frame(object):
     def __init__(self, depth_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
-        self._data = np.array(
-            [
-                (
-                    depth_data.getX(i),  # float32 [meter]
-                    depth_data.getY(i),  # float32 [meter]
-                    depth_data.getZ(i),  # float32 [meter]
-                    depth_data.getNoise(i),  # float32 [meter]
-                    depth_data.getGrayValue(i),  # uint16
-                    # uint8 (0: invalid, 255: full confidence)
-                    depth_data.getDepthConfidence(i),
-                )
-                for i in range(depth_data.getNumPoints())
-            ],
-            dtype=[
-                ("x", np.float32),
-                ("y", np.float32),
-                ("z", np.float32),
-                ("noise", np.float32),
-                ("grayValue", np.uint16),
-                ("depthConfidence", np.uint8),
-            ],
-        ).view(np.recarray)
+        self._data = roypycy.get_backend_data(depth_data)
 
         self.height = depth_data.height
         self.width = depth_data.width
@@ -144,6 +132,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.fps = 30
         self.frame_count = 0
 
+        self._ui_exposure = None
+        self._current_exposure = 0  # TODO obtain current exposure from most recent DepthData event
+        self._current_exposure_mode = False
+
     def init_device(self):
         cam_manager = roypy.CameraManager()
         try:
@@ -157,6 +149,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
         self.camera.startCapture()
+        roypycy.set_exposure_mode(self.camera, 1)
+        self._current_exposure_mode = self.get_exposure_mode()
         self._online = True
 
     def init_ui(self):  # was gui
@@ -189,6 +183,28 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     label="Activate usecase",
                 )
             )
+
+            exposure_limits = self.camera.getExposureLimits()
+            self.menu.append(
+                ui.Slider(
+                    "selected_exposure",
+                    min=exposure_limits.first,
+                    max=exposure_limits.second,
+                    getter=lambda: self._current_exposure,
+                    setter=self.set_exposure_delayed,
+                    label="Exposure",
+                )
+            )
+            self._ui_exposure = self.menu[-1]
+
+            self.menu.append(
+                ui.Switch(
+                    "selected_exposure_mode",
+                    getter=lambda: self._current_exposure_mode,
+                    setter=self.set_exposure_mode,
+                    label="Auto Exposure",
+                )
+            )
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -203,11 +219,47 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera.unregisterDataListener()
             self.camera = None
 
+    def on_notify(self, notification):
+        if notification["subject"] == "picoflexx.set_exposure":
+            self.set_exposure(notification["exposure"])
+
     def set_usecase(self, usecase):
         if self.camera.isCapturing():
             self.camera.stopCapture()
         self.camera.setUseCase(usecase)
+
+        # Update UI with expsoure limits of this use case
+        exposure_limits = self.camera.getExposureLimits()
+        self._ui_exposure.minimum = exposure_limits.first
+        self._ui_exposure.maximum = exposure_limits.second
+        if self._current_exposure > exposure_limits.second:
+            # Exposure is implicitly clamped to new max
+            self._current_exposure = exposure_limits.second
+
         self.camera.startCapture()
+
+    def set_exposure_delayed(self, exposure):
+        self.notify_all(
+            {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
+        )
+
+    def set_exposure(self, exposure):
+        status = self.camera.setExposureTime(exposure)
+        if status != 0:
+            logger.warning(
+                "setExposureTime: Non-zero return: {} - {}".format(
+                    status, roypy.getStatusString(status)
+                )
+            )
+
+        self._current_exposure = exposure
+
+    def get_exposure_mode(self):
+        return roypycy.get_exposure_mode(self.camera) == 1
+
+    def set_exposure_mode(self, exposure_mode):
+        roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+        self._current_exposure_mode = exposure_mode
 
     def recent_events(self, events):
         frame = self.get_frame()
