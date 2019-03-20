@@ -133,7 +133,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.frame_count = 0
 
         self._ui_exposure = None
-        self._current_exposure = 0  # TODO obtain current exposure from most recent DepthData event
+        self._current_exposure = (
+            0
+        )  # TODO obtain current exposure from most recent DepthData event
         self._current_exposure_mode = False
 
     def init_device(self):
@@ -334,21 +336,20 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def intrinsics(self):
-        return Radial_Dist_Camera(
-            [[212.924133, 0, 117.875443], [0.0, 212.924133, 87.564507], [0, 0, 1]],
-            [0.288401, -3.919852, 0, 0, 6.981279],
-            self.frame_size,
-            self.name,
-        )
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
-            self._intrinsics = load_intrinsics(
-                self.g_pool.user_dir, self.name, self.frame_size
-            )
+            lens_params = roypycy.get_lens_parameters(self.camera)
+            c_x, c_y = lens_params["principalPoint"]
+            f_x, f_y = lens_params["focalLength"]
+            p_1, p_2 = lens_params["distortionTangential"]
+            k_1, k_2, *k_other = lens_params["distortionRadial"]
+            K = [[f_x, 0.0, c_x], [0.0, f_y, c_y], [0.0, 0.0, 1.0]]
+            D = k_1, k_2, p_1, p_2, *k_other
+            self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)
         return self._intrinsics
 
     @intrinsics.setter
     def intrinsics(self, model):
-        self._intrinsics = model
+        logger.error("Picoflexx backend does not support setting intrinsics manually")
 
 
 class Picoflexx_Manager(Base_Manager):
