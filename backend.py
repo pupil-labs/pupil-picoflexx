@@ -54,6 +54,7 @@ class Frame(object):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
         self._data = roypycy.get_backend_data(depth_data)
+        self.exposure_times = depth_data.exposureTimes
 
         self.height = depth_data.height
         self.width = depth_data.width
@@ -272,6 +273,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         if frame:
             events["frame"] = frame
             self._recent_frame = frame
+
+            if self._current_exposure_mode:  # auto exposure
+                self._current_exposure = frame.exposure_times[1]
 
     def get_frame(self):
         try:
