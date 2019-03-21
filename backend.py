@@ -199,6 +199,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
             self._ui_exposure = self.menu[-1]
 
+            self._current_exposure_mode = self.get_exposure_mode()
+            self._ui_exposure.read_only = self._current_exposure_mode
+
             self.menu.append(
                 ui.Switch(
                     "selected_exposure_mode",
@@ -262,6 +265,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def set_exposure_mode(self, exposure_mode):
         roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
         self._current_exposure_mode = exposure_mode
+        self._ui_exposure.read_only = exposure_mode
 
     def recent_events(self, events):
         frame = self.get_frame()
