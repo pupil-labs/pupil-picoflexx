@@ -134,9 +134,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.frame_count = 0
 
         self._ui_exposure = None
-        self._current_exposure = (
-            0
-        )  # TODO obtain current exposure from most recent DepthData event
+        self._current_exposure = 0
         self._current_exposure_mode = False
 
     def init_device(self):
