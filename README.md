@@ -27,15 +27,15 @@ If the requirements where not installed correctly, you should see the following 
 world - [WARNING] plugin: Failed to load 'picoflexx'. Reason: '<reason>'
 ```
 
-### Compile backend extension to greatly improve performance (optional)
+### Compile roypycy extension
 1. Copy (or symlink) the Royale SDK `include` folder here, e.g. `ln -s /path/to/libroyale-3.20.0.62-LINUX-x86-64Bit/include .`
 1. `python setup.py build_ext`
 
 If the extension was not compiled/setup correctly, you should see the following line:
 ```log
-world - [WARNING] picoflexx.backend: Failed to load roypy_backend extension, falling back to roypy
+world - [WARNING] picoflexx.backend: Pico Flexx backend requirements (roypycy) not installed properly
 ```
-If you're getting `ImportError: cannot import name 'roypy_backend'` even though the library was compiled, a common cause is the python version used to compile the extension differs from that used by Pupil Capture (Python 3.6).
+If you're getting `ImportError: cannot import name 'roypycy'` even though the library was compiled, a common cause is the python version used to compile the extension differs from that used by Pupil Capture (Python 3.6).
 
 ## Usage
 
