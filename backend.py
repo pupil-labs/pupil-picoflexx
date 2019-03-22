@@ -243,6 +243,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.startCapture()
 
     def set_exposure_delayed(self, exposure):
+        # set displayed exposure early, to reduce jankiness while dragging slider
+        self._current_exposure = exposure
+
         self.notify_all(
             {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
         )
@@ -255,8 +258,6 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     status, roypy.getStatusString(status)
                 )
             )
-
-        self._current_exposure = exposure
 
     def get_exposure_mode(self):
         return roypycy.get_exposure_mode(self.camera) == 1
