@@ -101,10 +101,52 @@ class Frame(object):
         return self._data[["x", "y", "z"]]
 
 
+class IrFrame(object):
+    """docstring of IrFrame"""
+
+    current_index = 0
+
+    def __init__(self, ir_data: roypycy.PyIrImage):
+        # self.timestamp = depth_data.timeStamp  # Not memory safe!
+        self.timestamp = None
+        self._data = ir_data
+
+        self.height = ir_data.height
+        self.width = ir_data.width
+        self.shape = ir_data.height, ir_data.width
+        self.index = self.current_index
+        self.current_index += 1
+
+        # indicate that the frame does not have a native yuv or jpeg buffer
+        self.yuv_buffer = None
+        self.jpeg_buffer = None
+
+        self._img = None
+        self._gray = None
+
+    @property
+    def img(self):
+        if self._img is None:
+            data = self._data.data.reshape(self.height, self.width)
+            self._img = cv2.cvtColor(data, cv2.COLOR_GRAY2BGR)
+        return self._img
+
+    @property
+    def gray(self):
+        if self._gray is None:
+            self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+        return self._gray
+
+    @property
+    def bgr(self):
+        return self.img
+
+
 class DepthDataListener(roypy.IDepthDataListener):
     def __init__(self, queue):
         super().__init__()
         self.queue = queue
+        self._ir_ref = None
 
     def onNewData(self, data):
         try:
@@ -115,6 +157,24 @@ class DepthDataListener(roypy.IDepthDataListener):
             import traceback
 
             traceback.print_exc()
+
+    def onNewIrData(self, data: roypycy.PyIrImage):
+        try:
+            self.queue.put(IrFrame(data), block=False)
+        except queue.Full:
+            pass  # dropping frame
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+    def registerIrListener(self, camera):
+        self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
+
+    def unregisterIrListener(self, camera):
+        if self._ir_ref:
+            roypycy.unregister_ir_image_listener(camera, self._ir_ref, self.onNewData)
+            self._ir_ref = None
 
 
 class Picoflexx_Source(Playback_Source, Base_Source):
@@ -136,6 +196,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._ui_exposure = None
         self._current_exposure = 0
         self._current_exposure_mode = False
+        self._enable_ir_camera = False
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -209,6 +270,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                     label="Auto Exposure",
                 )
             )
+
+            self.menu.append(
+                ui.Switch(
+                    "toggle_ir_camera",
+                    getter=lambda: self._enable_ir_camera,
+                    setter=self.set_enable_ir_camera,
+                    label="IR Camera",
+                )
+            )
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -221,7 +291,18 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             if self.camera.isConnected() and self.camera.isCapturing():
                 self.camera.stopCapture()
             self.camera.unregisterDataListener()
+            self.data_listener.unregisterIrListener(self.camera)
             self.camera = None
+
+    def set_enable_ir_camera(self, status):
+        if status:
+            self.camera.unregisterDataListener()
+            self.data_listener.registerIrListener(self.camera)
+        else:
+            self.data_listener.unregisterIrListener(self.camera)
+            self.camera.registerDataListener(self.data_listener)
+
+        self._enable_ir_camera = status
 
     def on_notify(self, notification):
         if notification["subject"] == "picoflexx.set_exposure":
@@ -273,7 +354,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             events["frame"] = frame
             self._recent_frame = frame
 
-            if self._current_exposure_mode:  # auto exposure
+            if self._current_exposure_mode and hasattr(frame, 'exposure_times'):  # auto exposure
                 self._current_exposure = frame.exposure_times[1]
 
     def get_frame(self):

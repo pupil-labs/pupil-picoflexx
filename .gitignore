@@ -128,5 +128,7 @@ sample_record_rrf\.py
 sample_retrieve_data\.py
 include
 
+!/roypycy_defs.cpp
+
 # macOS
 .DS_Store
