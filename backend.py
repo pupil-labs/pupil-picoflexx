@@ -9,6 +9,7 @@ See COPYING and COPYING.LESSER for license details.
 ---------------------------------------------------------------------------~(*)
 """
 
+import collections
 import itertools
 import logging
 import queue
@@ -19,6 +20,7 @@ from pyglui import ui
 
 import cv2
 import cython_methods
+import gl_utils
 from camera_models import load_intrinsics, Radial_Dist_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
@@ -44,37 +46,61 @@ except ImportError:
     logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
     raise
 
+FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
 
-class Frame(object):
-    """docstring of Frame"""
 
-    current_index = 0
+class IRFrame(object):
+    def __init__(self, ir_data):
+        self._ir_data = ir_data
+        self.timestamp = ir_data.timestamp
+        self.width = ir_data.width
+        self.height = ir_data.height
+        self.shape = self.height, self.width
+        self._ir_img = None
+        self._ir_img_bgr = None
 
-    def __init__(self, depth_data, ir_data):
+        # indicate that the frame does not have a native yuv or jpeg buffer
+        self.yuv_buffer = None
+        self.jpeg_buffer = None
+
+    @property
+    def img(self):
+        return self.bgr
+
+    @property
+    def gray(self):
+        if self._ir_img is None:
+            self._ir_img = self._ir_data.data
+            self._ir_img.shape = self.shape
+        return self._ir_img
+
+    @property
+    def bgr(self):
+        if self._ir_img_bgr is None:
+            self._ir_img_bgr = cv2.cvtColor(self.gray, cv2.COLOR_GRAY2BGR)
+        return self._ir_img_bgr
+
+
+class DepthFrame(object):
+    def __init__(self, depth_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
-        self._ir_data = ir_data
         self._data = roypycy.get_backend_data(depth_data)
         self.exposure_times = depth_data.exposureTimes
 
         self.height = depth_data.height
         self.width = depth_data.width
         self.shape = depth_data.height, depth_data.width, 3
-        self.index = self.current_index
-        self.current_index += 1
-
-        self._show_ir = False
 
         # indicate that the frame does not have a native yuv or jpeg buffer
         self.yuv_buffer = None
         self.jpeg_buffer = None
 
-        self._ir_img = None
         self._depth_img = None
         self._gray = None
 
     @property
-    def depth_image(self):
+    def bgr(self):
         if self._depth_img is None:
             depth_values = self._data.z.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
@@ -83,18 +109,14 @@ class Frame(object):
         return self._depth_img
 
     @property
-    def img(self):
-        return self.ir_img if self._show_ir else self.depth_image
-
-    @property
     def gray(self):
         if self._gray is None:
             self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         return self._gray
 
     @property
-    def bgr(self):
-        return self.img
+    def img(self):
+        return self.bgr
 
     @property
     def confidence(self):
@@ -105,18 +127,13 @@ class Frame(object):
         return self._data.noise.reshape(self.height, self.width)
 
     @property
-    def ir_img(self):
-        if self._ir_img is None:
-            data = self._ir_data.data.reshape(self.height, self.width)
-            self._ir_img = cv2.cvtColor(data, cv2.COLOR_GRAY2BGR)
-        return self._ir_img
-
-    @property
     def dense_pointcloud(self):
         return self._data[["x", "y", "z"]]
 
 
 class DepthDataListener(roypy.IDepthDataListener):
+    current_index = 0
+
     def __init__(self, queue):
         super().__init__()
         self.queue = queue
@@ -130,9 +147,14 @@ class DepthDataListener(roypy.IDepthDataListener):
             return
 
         try:
-            self.queue.put(Frame(self._data_depth, self._data_ir), block=False)
+            frame_depth = DepthFrame(self._data_depth)
+            frame_ir = IRFrame(self._data_ir)
+            frame_depth.index = frame_ir.index = self.current_index
+            self.current_index += 1
+
+            self.queue.put(FramePair(ir=frame_ir, depth=frame_depth), block=False)
         except queue.Full:
-            pass  # dropping frame
+            pass  # dropping frame pair
         except Exception:
             import traceback
 
@@ -177,7 +199,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._ui_exposure = None
         self._current_exposure = 0
         self._current_exposure_mode = False
-        self._enable_ir_camera = False
+        self._preview_depth = True
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -253,14 +275,14 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-            self.menu.append(
-                ui.Switch(
-                    "toggle_ir_camera",
-                    getter=lambda: self._enable_ir_camera,
-                    setter=lambda x: setattr(self, '_enable_ir_camera', x),
-                    label="IR Camera",
-                )
+            text = ui.Info_Text(
+                "Enabling Preview Depth will display a cumulative histogram colored "
+                "version of the depth data. Disabling the option will display the "
+                "according IR image. Independent of which option is selected, the IR "
+                "image stream will be stored to `world.mp4` during a recording."
             )
+            self.menu.append(text)
+            self.menu.append(ui.Switch("_preview_depth", self, label="Preview Depth"))
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -321,28 +343,29 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._ui_exposure.read_only = exposure_mode
 
     def recent_events(self, events):
-        frame = self.get_frame()
-        if frame:
-            events["frame"] = frame
-            self._recent_frame = frame
+        frames = self.get_frames()
+        if frames:
+            events["frame"] = frames.ir
+            events["depth_frame"] = frames.depth
+            self._recent_frame = frames.ir
+            self._recent_depth_frame = frames.depth
 
-            if self._current_exposure_mode and hasattr(frame, 'exposure_times'):  # auto exposure
-                self._current_exposure = frame.exposure_times[1]
+            if self._current_exposure_mode:  # auto exposure
+                self._current_exposure = frames.depth.exposure_times[1]
 
-    def get_frame(self):
+    def get_frames(self):
         try:
-            frame = self.queue.get(True, 0.02)
+            frames = self.queue.get(True, 0.02)
         except queue.Empty:
             return
 
         # Given: timestamp in microseconds precision (time since epoch 1970)
         # Overwrite with Capture timestamp
-        frame.timestamp = self.g_pool.get_timestamp()
+        recv_ts = self.g_pool.get_timestamp()
+        frames.ir.timestamp = recv_ts
+        frames.depth.timestamp = recv_ts
 
-        if self._enable_ir_camera:
-            frame._show_ir = True
-
-        return frame
+        return frames
 
     @property
     def frame_size(self):
@@ -413,6 +436,22 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     @intrinsics.setter
     def intrinsics(self, model):
         logger.error("Picoflexx backend does not support setting intrinsics manually")
+
+    def gl_display(self):
+        if self.online:
+            if self._preview_depth and self._recent_depth_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.bgr)
+            elif self._recent_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.gray)
+            gl_utils.glFlush()
+            gl_utils.make_coord_system_norm_based()
+            self.g_pool.image_tex.draw()
+        else:
+            super().gl_display()
+
+        gl_utils.make_coord_system_pixel_based(
+            (self.frame_size[1], self.frame_size[0], 3)
+        )
 
 
 class Picoflexx_Manager(Base_Manager):
