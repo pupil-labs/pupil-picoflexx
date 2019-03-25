@@ -50,9 +50,10 @@ class Frame(object):
 
     current_index = 0
 
-    def __init__(self, depth_data):
+    def __init__(self, depth_data, ir_data):
         # self.timestamp = depth_data.timeStamp  # Not memory safe!
         self.timestamp = None
+        self._ir_data = ir_data
         self._data = roypycy.get_backend_data(depth_data)
         self.exposure_times = depth_data.exposureTimes
 
@@ -62,21 +63,28 @@ class Frame(object):
         self.index = self.current_index
         self.current_index += 1
 
+        self._show_ir = False
+
         # indicate that the frame does not have a native yuv or jpeg buffer
         self.yuv_buffer = None
         self.jpeg_buffer = None
 
-        self._img = None
+        self._ir_img = None
+        self._depth_img = None
         self._gray = None
 
     @property
-    def img(self):
-        if self._img is None:
+    def depth_image(self):
+        if self._depth_img is None:
             depth_values = self._data.z.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
             depth_values = depth_values.astype(np.uint16)
-            self._img = cython_methods.cumhist_color_map16(depth_values)
-        return self._img
+            self._depth_img = cython_methods.cumhist_color_map16(depth_values)
+        return self._depth_img
+
+    @property
+    def img(self):
+        return self.ir_img if self._show_ir else self.depth_image
 
     @property
     def gray(self):
@@ -97,49 +105,15 @@ class Frame(object):
         return self._data.noise.reshape(self.height, self.width)
 
     @property
+    def ir_img(self):
+        if self._ir_img is None:
+            data = self._ir_data.data.reshape(self.height, self.width)
+            self._ir_img = cv2.cvtColor(data, cv2.COLOR_GRAY2BGR)
+        return self._ir_img
+
+    @property
     def dense_pointcloud(self):
         return self._data[["x", "y", "z"]]
-
-
-class IrFrame(object):
-    """docstring of IrFrame"""
-
-    current_index = 0
-
-    def __init__(self, ir_data: roypycy.PyIrImage):
-        # self.timestamp = depth_data.timeStamp  # Not memory safe!
-        self.timestamp = None
-        self._data = ir_data
-
-        self.height = ir_data.height
-        self.width = ir_data.width
-        self.shape = ir_data.height, ir_data.width
-        self.index = self.current_index
-        self.current_index += 1
-
-        # indicate that the frame does not have a native yuv or jpeg buffer
-        self.yuv_buffer = None
-        self.jpeg_buffer = None
-
-        self._img = None
-        self._gray = None
-
-    @property
-    def img(self):
-        if self._img is None:
-            data = self._data.data.reshape(self.height, self.width)
-            self._img = cv2.cvtColor(data, cv2.COLOR_GRAY2BGR)
-        return self._img
-
-    @property
-    def gray(self):
-        if self._gray is None:
-            self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-        return self._gray
-
-    @property
-    def bgr(self):
-        return self.img
 
 
 class DepthDataListener(roypy.IDepthDataListener):
@@ -148,25 +122,32 @@ class DepthDataListener(roypy.IDepthDataListener):
         self.queue = queue
         self._ir_ref = None
 
-    def onNewData(self, data):
+        self._data_depth = None
+        self._data_ir = None  # type: roypycy.PyIrImage
+
+    def _check_frame(self):
+        if self._data_depth is None or self._data_ir is None:
+            return
+
         try:
-            self.queue.put(Frame(data), block=False)
+            self.queue.put(Frame(self._data_depth, self._data_ir), block=False)
         except queue.Full:
             pass  # dropping frame
         except Exception:
             import traceback
 
             traceback.print_exc()
+
+        self._data_depth = None
+        self._data_ir = None
+
+    def onNewData(self, data):
+        self._data_depth = data
+        self._check_frame()
 
     def onNewIrData(self, data: roypycy.PyIrImage):
-        try:
-            self.queue.put(IrFrame(data), block=False)
-        except queue.Full:
-            pass  # dropping frame
-        except Exception:
-            import traceback
-
-            traceback.print_exc()
+        self._data_ir = data
+        self._check_frame()
 
     def registerIrListener(self, camera):
         self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
@@ -210,6 +191,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera = cam_manager.createCamera(cam_id)
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
+        self.data_listener.registerIrListener(self.camera)
         self.camera.startCapture()
         roypycy.set_exposure_mode(self.camera, 1)
         self._current_exposure_mode = self.get_exposure_mode()
@@ -275,7 +257,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 ui.Switch(
                     "toggle_ir_camera",
                     getter=lambda: self._enable_ir_camera,
-                    setter=self.set_enable_ir_camera,
+                    setter=lambda x: setattr(self, '_enable_ir_camera', x),
                     label="IR Camera",
                 )
             )
@@ -293,16 +275,6 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera.unregisterDataListener()
             self.data_listener.unregisterIrListener(self.camera)
             self.camera = None
-
-    def set_enable_ir_camera(self, status):
-        if status:
-            self.camera.unregisterDataListener()
-            self.data_listener.registerIrListener(self.camera)
-        else:
-            self.data_listener.unregisterIrListener(self.camera)
-            self.camera.registerDataListener(self.data_listener)
-
-        self._enable_ir_camera = status
 
     def on_notify(self, notification):
         if notification["subject"] == "picoflexx.set_exposure":
@@ -366,6 +338,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         # Given: timestamp in microseconds precision (time since epoch 1970)
         # Overwrite with Capture timestamp
         frame.timestamp = self.g_pool.get_timestamp()
+
+        if self._enable_ir_camera:
+            frame._show_ir = True
 
         return frame
 
