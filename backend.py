@@ -339,7 +339,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         )
 
     def set_exposure(self, exposure):
-        status = self.camera.setExposureTime(exposure)
+        try:
+            status = self.camera.setExposureTime(exposure)
+        except RuntimeError:  # Device could have changed auto exposure modes since the slider was dragged
+            logger.warning("Failed to set exposure")
+            return
+
         if status != 0:
             logger.warning(
                 "setExposureTime: Non-zero return: {} - {}".format(
