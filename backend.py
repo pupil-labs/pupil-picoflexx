@@ -144,6 +144,8 @@ class DepthDataListener(roypy.IDepthDataListener):
     def _check_frame(self):
         if self._data_depth is None or self._data_ir is None:
             return
+        if roypycy.get_depth_data_ts(self._data_depth) != self._data_ir.timestamp:
+            return
 
         try:
             frame_depth = DepthFrame(self._data_depth)
