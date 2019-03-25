@@ -205,6 +205,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.fps = 30
         self.frame_count = 0
 
+        self._recent_frame = None
+        self._recent_depth_frame = None
+
         self._ui_exposure = None
         self._current_exposure = 0
         self._current_exposure_mode = auto_exposure
