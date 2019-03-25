@@ -183,7 +183,16 @@ class DepthDataListener(roypy.IDepthDataListener):
 class Picoflexx_Source(Playback_Source, Base_Source):
     name = "Picoflexx"
 
-    def __init__(self, g_pool, color_z_min=0.4, color_z_max=1.0, *args, **kwargs):
+    def __init__(
+        self,
+        g_pool,
+        auto_exposure=False,
+        preview_depth=True,
+        color_z_min=0.4,
+        color_z_max=1.0,
+        *args,
+        **kwargs
+    ):
         super().__init__(g_pool, *args, **kwargs)
         self.color_z_min = color_z_min
         self.color_z_max = color_z_max
@@ -198,8 +207,14 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
         self._ui_exposure = None
         self._current_exposure = 0
-        self._current_exposure_mode = False
-        self._preview_depth = True
+        self._current_exposure_mode = auto_exposure
+        self._preview_depth = preview_depth
+
+    def get_init_dict(self):
+        return {
+            "preview_depth": self._preview_depth,
+            "auto_exposure": self._current_exposure_mode,
+        }
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -251,25 +266,23 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
             exposure_limits = self.camera.getExposureLimits()
-            self.menu.append(
-                ui.Slider(
-                    "selected_exposure",
-                    min=exposure_limits.first,
-                    max=exposure_limits.second,
-                    getter=lambda: self._current_exposure,
-                    setter=self.set_exposure_delayed,
-                    label="Exposure",
-                )
+            self._ui_exposure = ui.Slider(
+                "_current_exposure",
+                self,
+                min=exposure_limits.first,
+                max=exposure_limits.second,
+                setter=self.set_exposure_delayed,
+                label="Exposure",
             )
-            self._ui_exposure = self.menu[-1]
+            self.menu.append(self._ui_exposure)
 
             self._current_exposure_mode = self.get_exposure_mode()
             self._ui_exposure.read_only = self._current_exposure_mode
 
             self.menu.append(
                 ui.Switch(
-                    "selected_exposure_mode",
-                    getter=lambda: self._current_exposure_mode,
+                    "_current_exposure_mode",
+                    self,
                     setter=self.set_exposure_mode,
                     label="Auto Exposure",
                 )
