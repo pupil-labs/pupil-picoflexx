@@ -9,6 +9,7 @@ See COPYING and COPYING.LESSER for license details.
 ---------------------------------------------------------------------------~(*)
 """
 
+import collections
 import itertools
 import logging
 import queue
@@ -19,6 +20,7 @@ from pyglui import ui
 
 import cv2
 import cython_methods
+import gl_utils
 from camera_models import load_intrinsics, Radial_Dist_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
@@ -44,38 +46,67 @@ except ImportError:
     logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
     raise
 
+FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
 
-class Frame(object):
-    """docstring of Frame"""
 
-    current_index = 0
-
-    def __init__(self, depth_data):
-        # self.timestamp = depth_data.timeStamp  # Not memory safe!
-        self.timestamp = None
-        self._data = roypycy.get_backend_data(depth_data)
-
-        self.height = depth_data.height
-        self.width = depth_data.width
-        self.shape = depth_data.height, depth_data.width, 3
-        self.index = self.current_index
-        self.current_index += 1
+class IRFrame(object):
+    def __init__(self, ir_data):
+        self._ir_data = ir_data
+        self.timestamp = ir_data.timestamp
+        self.width = ir_data.width
+        self.height = ir_data.height
+        self.shape = self.height, self.width
+        self._ir_img = None
+        self._ir_img_bgr = None
 
         # indicate that the frame does not have a native yuv or jpeg buffer
         self.yuv_buffer = None
         self.jpeg_buffer = None
 
-        self._img = None
+    @property
+    def img(self):
+        return self.bgr
+
+    @property
+    def gray(self):
+        if self._ir_img is None:
+            self._ir_img = self._ir_data.data
+            self._ir_img.shape = self.shape
+        return self._ir_img
+
+    @property
+    def bgr(self):
+        if self._ir_img_bgr is None:
+            self._ir_img_bgr = cv2.cvtColor(self.gray, cv2.COLOR_GRAY2BGR)
+        return self._ir_img_bgr
+
+
+class DepthFrame(object):
+    def __init__(self, depth_data):
+        # self.timestamp = depth_data.timeStamp  # Not memory safe!
+        self.timestamp = None
+        self._data = roypycy.get_backend_data(depth_data)
+        self.exposure_times = depth_data.exposureTimes
+
+        self.height = depth_data.height
+        self.width = depth_data.width
+        self.shape = depth_data.height, depth_data.width, 3
+
+        # indicate that the frame does not have a native yuv or jpeg buffer
+        self.yuv_buffer = None
+        self.jpeg_buffer = None
+
+        self._depth_img = None
         self._gray = None
 
     @property
-    def img(self):
-        if self._img is None:
+    def bgr(self):
+        if self._depth_img is None:
             depth_values = self._data.z.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
             depth_values = depth_values.astype(np.uint16)
-            self._img = cython_methods.cumhist_color_map16(depth_values)
-        return self._img
+            self._depth_img = cython_methods.cumhist_color_map16(depth_values)
+        return self._depth_img
 
     @property
     def gray(self):
@@ -84,8 +115,8 @@ class Frame(object):
         return self._gray
 
     @property
-    def bgr(self):
-        return self.img
+    def img(self):
+        return self.bgr
 
     @property
     def confidence(self):
@@ -101,25 +132,67 @@ class Frame(object):
 
 
 class DepthDataListener(roypy.IDepthDataListener):
+    current_index = 0
+
     def __init__(self, queue):
         super().__init__()
         self.queue = queue
+        self._ir_ref = None
 
-    def onNewData(self, data):
+        self._data_depth = None
+        self._data_ir = None  # type: roypycy.PyIrImage
+
+    def _check_frame(self):
+        if self._data_depth is None or self._data_ir is None:
+            return
+
         try:
-            self.queue.put(Frame(data), block=False)
+            frame_depth = DepthFrame(self._data_depth)
+            frame_ir = IRFrame(self._data_ir)
+            frame_depth.index = frame_ir.index = self.current_index
+            self.current_index += 1
+
+            self.queue.put(FramePair(ir=frame_ir, depth=frame_depth), block=False)
         except queue.Full:
-            pass  # dropping frame
+            pass  # dropping frame pair
         except Exception:
             import traceback
 
             traceback.print_exc()
 
+        self._data_depth = None
+        self._data_ir = None
+
+    def onNewData(self, data):
+        self._data_depth = data
+        self._check_frame()
+
+    def onNewIrData(self, data: roypycy.PyIrImage):
+        self._data_ir = data
+        self._check_frame()
+
+    def registerIrListener(self, camera):
+        self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
+
+    def unregisterIrListener(self, camera):
+        if self._ir_ref:
+            roypycy.unregister_ir_image_listener(camera, self._ir_ref, self.onNewData)
+            self._ir_ref = None
+
 
 class Picoflexx_Source(Playback_Source, Base_Source):
     name = "Picoflexx"
 
-    def __init__(self, g_pool, color_z_min=0.4, color_z_max=1.0, *args, **kwargs):
+    def __init__(
+        self,
+        g_pool,
+        auto_exposure=False,
+        preview_depth=True,
+        color_z_min=0.4,
+        color_z_max=1.0,
+        *args,
+        **kwargs
+    ):
         super().__init__(g_pool, *args, **kwargs)
         self.color_z_min = color_z_min
         self.color_z_max = color_z_max
@@ -133,10 +206,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.frame_count = 0
 
         self._ui_exposure = None
-        self._current_exposure = (
-            0
-        )  # TODO obtain current exposure from most recent DepthData event
-        self._current_exposure_mode = False
+        self._current_exposure = 0
+        self._current_exposure_mode = auto_exposure
+        self._preview_depth = preview_depth
+
+    def get_init_dict(self):
+        return {
+            "preview_depth": self._preview_depth,
+            "auto_exposure": self._current_exposure_mode,
+        }
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -150,6 +228,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera = cam_manager.createCamera(cam_id)
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
+        self.data_listener.registerIrListener(self.camera)
         self.camera.startCapture()
         roypycy.set_exposure_mode(self.camera, 1)
         self._current_exposure_mode = self.get_exposure_mode()
@@ -187,26 +266,36 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
             exposure_limits = self.camera.getExposureLimits()
-            self.menu.append(
-                ui.Slider(
-                    "selected_exposure",
-                    min=exposure_limits.first,
-                    max=exposure_limits.second,
-                    getter=lambda: self._current_exposure,
-                    setter=self.set_exposure_delayed,
-                    label="Exposure",
-                )
+            self._ui_exposure = ui.Slider(
+                "_current_exposure",
+                self,
+                min=exposure_limits.first,
+                max=exposure_limits.second,
+                setter=self.set_exposure_delayed,
+                label="Exposure",
             )
-            self._ui_exposure = self.menu[-1]
+            self.menu.append(self._ui_exposure)
+
+            self._current_exposure_mode = self.get_exposure_mode()
+            self._ui_exposure.read_only = self._current_exposure_mode
 
             self.menu.append(
                 ui.Switch(
-                    "selected_exposure_mode",
-                    getter=lambda: self._current_exposure_mode,
+                    "_current_exposure_mode",
+                    self,
                     setter=self.set_exposure_mode,
                     label="Auto Exposure",
                 )
             )
+
+            text = ui.Info_Text(
+                "Enabling Preview Depth will display a cumulative histogram colored "
+                "version of the depth data. Disabling the option will display the "
+                "according IR image. Independent of which option is selected, the IR "
+                "image stream will be stored to `world.mp4` during a recording."
+            )
+            self.menu.append(text)
+            self.menu.append(ui.Switch("_preview_depth", self, label="Preview Depth"))
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -219,6 +308,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             if self.camera.isConnected() and self.camera.isCapturing():
                 self.camera.stopCapture()
             self.camera.unregisterDataListener()
+            self.data_listener.unregisterIrListener(self.camera)
             self.camera = None
 
     def on_notify(self, notification):
@@ -241,6 +331,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.startCapture()
 
     def set_exposure_delayed(self, exposure):
+        # set displayed exposure early, to reduce jankiness while dragging slider
+        self._current_exposure = exposure
+
         self.notify_all(
             {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
         )
@@ -254,32 +347,38 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-        self._current_exposure = exposure
-
     def get_exposure_mode(self):
         return roypycy.get_exposure_mode(self.camera) == 1
 
     def set_exposure_mode(self, exposure_mode):
         roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
         self._current_exposure_mode = exposure_mode
+        self._ui_exposure.read_only = exposure_mode
 
     def recent_events(self, events):
-        frame = self.get_frame()
-        if frame:
-            events["frame"] = frame
-            self._recent_frame = frame
+        frames = self.get_frames()
+        if frames:
+            events["frame"] = frames.ir
+            events["depth_frame"] = frames.depth
+            self._recent_frame = frames.ir
+            self._recent_depth_frame = frames.depth
 
-    def get_frame(self):
+            if self._current_exposure_mode:  # auto exposure
+                self._current_exposure = frames.depth.exposure_times[1]
+
+    def get_frames(self):
         try:
-            frame = self.queue.get(True, 0.02)
+            frames = self.queue.get(True, 0.02)
         except queue.Empty:
             return
 
         # Given: timestamp in microseconds precision (time since epoch 1970)
         # Overwrite with Capture timestamp
-        frame.timestamp = self.g_pool.get_timestamp()
+        recv_ts = self.g_pool.get_timestamp()
+        frames.ir.timestamp = recv_ts
+        frames.depth.timestamp = recv_ts
 
-        return frame
+        return frames
 
     @property
     def frame_size(self):
@@ -350,6 +449,22 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     @intrinsics.setter
     def intrinsics(self, model):
         logger.error("Picoflexx backend does not support setting intrinsics manually")
+
+    def gl_display(self):
+        if self.online:
+            if self._preview_depth and self._recent_depth_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.bgr)
+            elif self._recent_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.gray)
+            gl_utils.glFlush()
+            gl_utils.make_coord_system_norm_based()
+            self.g_pool.image_tex.draw()
+        else:
+            super().gl_display()
+
+        gl_utils.make_coord_system_pixel_based(
+            (self.frame_size[1], self.frame_size[0], 3)
+        )
 
 
 class Picoflexx_Manager(Base_Manager):

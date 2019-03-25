@@ -2,7 +2,8 @@
 # distutils: language=c++
 import cython
 import numpy as np
-from libc.stdint cimport uint16_t, uint32_t, uint8_t
+from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
+from libc.stdint cimport uint16_t, uint32_t, uint8_t, int64_t
 
 # From https://stackoverflow.com/a/29343772
 cdef extern from "swigpyobject.h":
@@ -30,6 +31,35 @@ cdef extern from "royale/Pair.hpp" namespace "royale":
         Pair()
         T first
         U second
+
+
+cdef extern from "royale/IRImage.hpp" namespace "royale":
+    cdef struct IRImage:
+        int64_t timestamp;
+        uint16_t streamId;
+        uint16_t width;
+        uint16_t height;
+        Vector[uint8_t] data;
+
+
+class PyIrImage:
+    def __init__(self, timestamp, stream, width, height, data):
+        self.timestamp = timestamp
+        self.stream = stream
+        self.width = width
+        self.height = height
+        self.data = data
+
+
+cdef extern from "royale/IIRImageListener.hpp" namespace "royale":
+    cdef cppclass IIRImageListener:
+        IIRImageListener()
+        void onNewData(IRImage *data)
+
+cdef extern from "roypycy_defs.cpp":
+    cdef cppclass PyIRImageListener(IIRImageListener):
+        PyIRImageListener(void* obj, object (*callback)(void *irl_l, const IRImage *data))
+        void onNewData(IRImage *data)
 
 cdef extern from "royale/LensParameters.hpp" namespace "royale":
     ctypedef struct LensParameters:
@@ -66,6 +96,8 @@ cdef extern from "royale/ICameraDevice.hpp" namespace "royale":
         int getExposureMode(ExposureMode &exposureMode, uint16_t streamId)
         int setExposureMode(ExposureMode exposureMode, uint16_t streamId)
         int getLensParameters(LensParameters &params)
+        int registerIRImageListener(IIRImageListener *listener)
+        int unregisterIRImageListener()
 
 
 def get_depth_data(depthdata):
@@ -82,6 +114,47 @@ def get_depth_data(depthdata):
         i += 1
 
     return result
+
+
+cdef c_callback(void *ir_l, IRImage *data) with gil:
+    np_data = np.zeros((data.width * data.height, ), np.uint8)
+
+    cdef uint8_t[:] r_data = np_data
+
+    cdef int i = 0;
+    for pt in data[0].data:
+        r_data[i] = pt
+        i+=1
+
+    (<object>ir_l)(PyIrImage(
+        data.timestamp,
+        data.streamId,
+        data.width,
+        data.height,
+        np_data
+    ))
+
+
+def register_ir_image_listener(camera, callback):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+
+    Py_INCREF(callback)
+    cdef PyIRImageListener *ir_l = new PyIRImageListener(<PyObject*>callback, &c_callback)
+
+    mycpp_ptr[0][0].registerIRImageListener(ir_l)
+
+    return <unsigned long>ir_l
+
+
+def unregister_ir_image_listener(camera, unsigned long ir_l, callback):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+
+    Py_DECREF(callback)
+    mycpp_ptr[0][0].unregisterIRImageListener()
+    cdef PyIRImageListener* ptr = <PyIRImageListener*> ir_l
+    del ptr
 
 
 def get_lens_parameters(camera):

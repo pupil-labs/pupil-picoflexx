@@ -5,7 +5,7 @@ from distutils.core import setup
 extensions = [
     Extension(
         "roypycy",
-        ["roypycy.pyx"],
+        ["roypycy.pyx", "roypycy_defs.cpp"],
         library_dirs=["."],
         libraries=["royale"],
         include_dirs=["include"],
