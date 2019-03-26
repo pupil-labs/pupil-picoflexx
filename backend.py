@@ -146,7 +146,7 @@ class DepthFrame(object):
     @property
     def bgr(self):
         if self._depth_img is None:
-            depth_values = self._data.z.reshape(self.height, self.width)
+            depth_values = self.true_depth.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
             depth_values = depth_values.astype(np.uint16)
             self._depth_img = cython_methods.cumhist_color_map16(depth_values)
@@ -169,6 +169,11 @@ class DepthFrame(object):
     @property
     def noise(self):
         return self._data.noise.reshape(self.height, self.width)
+    
+    @property
+    def true_depth(self):
+        xyz = np.column_stack((self._data.x, self._data.y, self._data.z))
+        return np.linalg.norm(xyz, axis=1)
 
     @property
     def dense_pointcloud(self):
