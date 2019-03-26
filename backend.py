@@ -21,7 +21,7 @@ from pyglui import ui
 import cv2
 import cython_methods
 import gl_utils
-from camera_models import load_intrinsics, Radial_Dist_Camera
+from camera_models import load_intrinsics, Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -205,6 +205,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
         self.fps = 30
         self.frame_count = 0
+
+        self._recent_frame = None
+        self._recent_depth_frame = None
 
         self._ui_exposure = None
         self._current_exposure = 0
@@ -441,6 +444,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def intrinsics(self):
+        if not self.online:
+            return self._intrinsics or Dummy_Camera(self.frame_size, self.name)
+
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
             lens_params = roypycy.get_lens_parameters(self.camera)
             c_x, c_y = lens_params["principalPoint"]
