@@ -438,6 +438,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def intrinsics(self):
+        if not self.online:
+            return None
+
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
             lens_params = roypycy.get_lens_parameters(self.camera)
             c_x, c_y = lens_params["principalPoint"]
