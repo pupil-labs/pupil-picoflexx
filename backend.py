@@ -48,11 +48,13 @@ except ImportError:
 
 FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
 
+MICRO_TO_SECONDS = 1e-6
+
 
 class IRFrame(object):
     def __init__(self, ir_data):
         self._ir_data = ir_data
-        self.timestamp = ir_data.timestamp
+        self.timestamp = ir_data.timestamp * MICRO_TO_SECONDS
         self.width = ir_data.width
         self.height = ir_data.height
         self.shape = self.height, self.width
@@ -84,6 +86,7 @@ class IRFrame(object):
 class DepthFrame(object):
     def __init__(self, depth_data):
         self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
+        self.timestamp *= MICRO_TO_SECONDS  # seconds
         self._data = roypycy.get_backend_data(depth_data)
         self.exposure_times = depth_data.exposureTimes
 
@@ -192,7 +195,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         color_z_min=0.4,
         color_z_max=1.0,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
         self.color_z_min = color_z_min
@@ -381,11 +384,14 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         except queue.Empty:
             return
 
-        # Given: timestamp in microseconds precision (time since epoch 1970)
-        # Overwrite with Capture timestamp
-        recv_ts = self.g_pool.get_timestamp()
-        frames.ir.timestamp = recv_ts
-        frames.depth.timestamp = recv_ts
+        # picoflexx time epoch is unix time, readjust timestamps to pupil time
+        time_diff = self.g_pool.get_timestamp() - time()
+        frames.ir.timestamp += time_diff
+        frames.depth.timestamp += time_diff
+
+        # To calculate picoflexx camera delay:
+        # self.g_pool.get_timestamp() - frames.ir.timestamp
+        # Result: ~2-6ms delay depending on selected usecase
 
         return frames
 
