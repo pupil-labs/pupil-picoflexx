@@ -83,8 +83,7 @@ class IRFrame(object):
 
 class DepthFrame(object):
     def __init__(self, depth_data):
-        # self.timestamp = depth_data.timeStamp  # Not memory safe!
-        self.timestamp = None
+        self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
         self._data = roypycy.get_backend_data(depth_data)
         self.exposure_times = depth_data.exposureTimes
 
@@ -144,6 +143,8 @@ class DepthDataListener(roypy.IDepthDataListener):
 
     def _check_frame(self):
         if self._data_depth is None or self._data_ir is None:
+            return
+        if roypycy.get_depth_data_ts(self._data_depth) != self._data_ir.timestamp:
             return
 
         try:

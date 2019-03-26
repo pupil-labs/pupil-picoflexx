@@ -10,6 +10,10 @@ cdef extern from "swigpyobject.h":
     ctypedef struct SwigPyObject:
         void *ptr
 
+cdef extern from "<chrono>" namespace "std::chrono":
+    cdef cppclass microseconds:
+        long int count()  # FIXME: the type is technically an implementation detail
+
 cdef extern from "royale/Vector.hpp" namespace "royale":
     cdef cppclass Vector[T]:
         cppclass iterator:
@@ -71,7 +75,7 @@ cdef extern from "royale/LensParameters.hpp" namespace "royale":
 cdef extern from "royale/DepthData.hpp" namespace "royale":
     ctypedef struct DepthData:
         int                         version;         # !< version number of the data format
-        # std::chrono::microseconds   timeStamp;       # !< timestamp in microseconds precision (time since epoch 1970)
+        microseconds                timeStamp;       # !< timestamp in microseconds precision (time since epoch 1970)
         # StreamId                    streamId;        # !< stream which produced the data
         uint16_t                    width;           # !< width of depth image
         uint16_t                    height;          # !< height of depth image
@@ -98,6 +102,14 @@ cdef extern from "royale/ICameraDevice.hpp" namespace "royale":
         int getLensParameters(LensParameters &params)
         int registerIRImageListener(IIRImageListener *listener)
         int unregisterIRImageListener()
+
+
+def get_depth_data_ts(depthdata):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>depthdata.this
+    cdef DepthData *mycpp_ptr = <DepthData*?>swig_obj.ptr
+    cdef DepthData my_instance = mycpp_ptr[0]
+
+    return my_instance.timeStamp.count()
 
 
 def get_depth_data(depthdata):
