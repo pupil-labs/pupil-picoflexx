@@ -236,7 +236,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera.initialize()
         self.camera.registerDataListener(self.data_listener)
         self.data_listener.registerIrListener(self.camera)
-        self.camera.startCapture()
+        try:
+            # can sporadically claim "Camera is disconnected"
+            self.camera.startCapture()
+        except RuntimeError as e:
+            logger.error('Failed to start camera: {}'.format(e.args))
+            return
         roypycy.set_exposure_mode(self.camera, 1)
         self._current_exposure_mode = self.get_exposure_mode()
         self._online = True
@@ -313,7 +318,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def cleanup(self):
         if self.camera:
             if self.camera.isConnected() and self.camera.isCapturing():
-                self.camera.stopCapture()
+                try:
+                    # can sporadically claim "Camera is disconnected"
+                    self.camera.stopCapture()
+                except RuntimeError as e:
+                    logger.error('Failed to stop capture: {}'.format(e.args))
             self.camera.unregisterDataListener()
             self.data_listener.unregisterIrListener(self.camera)
             self.camera = None
