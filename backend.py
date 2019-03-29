@@ -17,6 +17,7 @@ from time import sleep, time
 
 import numpy as np
 from pyglui import ui
+from typing import Tuple, Optional
 
 import cv2
 import cython_methods
@@ -49,6 +50,39 @@ except ImportError:
 FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
 
 MICRO_TO_SECONDS = 1e-6
+
+
+def roypy_wrap(
+        func,
+        *args,
+        check_status: bool = True,
+        tag: str = None,
+        reraise: bool = False,
+        level: int = logging.WARNING,
+        **kwargs
+) -> Tuple[Optional[RuntimeError], Optional[int]]:
+    func_name = tag or getattr(func, '__name__', None) or 'Unknown function'
+
+    try:
+        status = func(*args, **kwargs)
+    except RuntimeError as e:
+        if e.args:
+            logger.log(level, "{}: {}".format(func_name, e.args[0]))
+        else:
+            logger.log(level, "{}: RuntimeError".format(func_name))
+
+        if reraise:
+            raise
+
+        return e, None
+
+    if check_status and status != 0:
+        logger.log(
+            level,
+            "{}: Non-zero return: {} - {}".format(func_name, status, roypy.getStatusString(status))
+        )
+
+        return None, status
 
 
 class IRFrame(object):
@@ -204,7 +238,6 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.camera = None
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
-        self.init_device()
 
         self.fps = 30
         self.frame_count = 0
@@ -216,6 +249,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._current_exposure = 0
         self._current_exposure_mode = auto_exposure
         self._preview_depth = preview_depth
+
+        self.init_device()
 
     def get_init_dict(self):
         return {
@@ -238,12 +273,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.data_listener.registerIrListener(self.camera)
         try:
             # can sporadically claim "Camera is disconnected"
-            self.camera.startCapture()
+            roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
         except RuntimeError as e:
-            logger.error('Failed to start camera: {}'.format(e.args))
             return
-        roypycy.set_exposure_mode(self.camera, 1)
-        self._current_exposure_mode = self.get_exposure_mode()
+        roypycy.set_exposure_mode(self.camera, self._current_exposure_mode)
         self._online = True
 
     def init_ui(self):  # was gui
@@ -318,11 +351,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def cleanup(self):
         if self.camera:
             if self.camera.isConnected() and self.camera.isCapturing():
-                try:
-                    # can sporadically claim "Camera is disconnected"
-                    self.camera.stopCapture()
-                except RuntimeError as e:
-                    logger.error('Failed to stop capture: {}'.format(e.args))
+                roypy_wrap(self.camera.stopCapture)
             self.camera.unregisterDataListener()
             self.data_listener.unregisterIrListener(self.camera)
             self.camera = None
@@ -333,8 +362,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def set_usecase(self, usecase):
         if self.camera.isCapturing():
-            self.camera.stopCapture()
-        self.camera.setUseCase(usecase)
+            roypy_wrap(self.camera.stopCapture)
+        roypy_wrap(self.camera.setUseCase, usecase)
 
         # Update UI with expsoure limits of this use case
         exposure_limits = self.camera.getExposureLimits()
@@ -344,7 +373,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             # Exposure is implicitly clamped to new max
             self._current_exposure = exposure_limits.second
 
-        self.camera.startCapture()
+        roypy_wrap(self.camera.startCapture)
 
     def set_exposure_delayed(self, exposure):
         # set displayed exposure early, to reduce jankiness while dragging slider
@@ -355,18 +384,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         )
 
     def set_exposure(self, exposure):
-        try:
-            status = self.camera.setExposureTime(exposure)
-        except RuntimeError:  # Device could have changed auto exposure modes since the slider was dragged
-            logger.warning("Failed to set exposure")
-            return
-
-        if status != 0:
-            logger.warning(
-                "setExposureTime: Non-zero return: {} - {}".format(
-                    status, roypy.getStatusString(status)
-                )
-            )
+        roypy_wrap(self.camera.setExposureTime, exposure)
 
     def get_exposure_mode(self):
         return roypycy.get_exposure_mode(self.camera) == 1
