@@ -365,6 +365,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.stopCapture)
         roypy_wrap(self.camera.setUseCase, usecase)
 
+        # FIXME the picoflexx maintains exposure times per usecase
+
         # Update UI with expsoure limits of this use case
         exposure_limits = self.camera.getExposureLimits()
         self._ui_exposure.minimum = exposure_limits.first
