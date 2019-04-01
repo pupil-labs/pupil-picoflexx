@@ -28,6 +28,9 @@ world - [WARNING] plugin: Failed to load 'picoflexx'. Reason: '<reason>'
 ```
 
 ### Compile roypycy extension
+
+Note for Windows users: VS2017 or the [VS2017 Build Tools](https://www.visualstudio.com/downloads/#build-tools-for-visual-studio-2017) will be required to compile the extension.
+
 1. Copy (or symlink) the Royale SDK `include` folder here, e.g. `ln -s /path/to/libroyale-3.20.0.62-LINUX-x86-64Bit/include .`
 1. `python setup.py build_ext`
 
