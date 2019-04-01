@@ -1,7 +1,5 @@
 ## Installation
 
-**ONLY TESTED ON MACOS**
-
 1. `cd ~/pupil_capture_settings/plugins`
 1. `git clone https://github.com/papr/pupil-picoflexx.git picoflexx`
 1. Download the [PMD Royale SDK](https://pmdtec.com/picofamily/software-download/)
