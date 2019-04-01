@@ -13,6 +13,7 @@ import collections
 import itertools
 import logging
 import queue
+import os
 from time import sleep, time
 
 import numpy as np
@@ -226,6 +227,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         g_pool,
         auto_exposure=False,
         preview_depth=True,
+        record_pointcloud=False,
         color_z_min=0.4,
         color_z_max=1.0,
         *args,
@@ -241,6 +243,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
         self.fps = 30
         self.frame_count = 0
+        self.record_pointcloud = record_pointcloud
 
         self._recent_frame = None
         self._recent_depth_frame = None
@@ -341,6 +344,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
             self.menu.append(text)
             self.menu.append(ui.Switch("_preview_depth", self, label="Preview Depth"))
+
+            self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
+            self.menu.append(self._switch_record_pointcloud)
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
@@ -359,6 +365,37 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def on_notify(self, notification):
         if notification["subject"] == "picoflexx.set_exposure":
             self.set_exposure(notification["exposure"])
+        elif notification["subject"] == "recording.started":
+            self._switch_record_pointcloud.read_only = True
+
+            self.start_pointcloud_recording(notification["rec_path"])
+        elif notification["subject"] == "recording.stopped":
+            self._switch_record_pointcloud.read_only = False
+
+            self.stop_pointcloud_recording()
+
+    def start_pointcloud_recording(self, rec_loc):
+        if not self.record_pointcloud:
+            return
+
+        video_path = os.path.join(rec_loc, "pointcloud.rrf")
+        status = self.camera.startRecording(video_path, 0, 0, 0)
+
+        if status != 0:
+            logger.warning(
+                "setExposureTime: Non-zero return: {} - {}".format(
+                    status, roypy.getStatusString(status)
+                )
+            )
+
+    def stop_pointcloud_recording(self):
+        status = self.camera.stopRecording()
+        if status != 0:
+            logger.warning(
+                "setExposureTime: Non-zero return: {} - {}".format(
+                    status, roypy.getStatusString(status)
+                )
+            )
 
     def set_usecase(self, usecase):
         if self.camera.isCapturing():
