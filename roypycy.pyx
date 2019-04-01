@@ -12,7 +12,7 @@ cdef extern from "swigpyobject.h":
 
 cdef extern from "<chrono>" namespace "std::chrono":
     cdef cppclass microseconds:
-        long int count()  # FIXME: the type is technically an implementation detail
+        int64_t count()  # FIXME: the type is technically an implementation detail
 
 cdef extern from "royale/Vector.hpp" namespace "royale":
     cdef cppclass Vector[T]:
