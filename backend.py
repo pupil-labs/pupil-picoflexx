@@ -257,7 +257,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def get_init_dict(self):
         return {
-            "preview_depth": self._preview_depth,
+             "preview_depth": self._preview_depth,
+             "record_pointcloud": self.record_pointcloud,
             "auto_exposure": self._current_exposure_mode,
         }
 
