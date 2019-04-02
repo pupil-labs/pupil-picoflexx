@@ -10,21 +10,20 @@ See COPYING and COPYING.LESSER for license details.
 """
 
 import collections
-import itertools
-import logging
-import queue
-import os
-from time import sleep, time
+from time import time
 
+import cv2
+import logging
 import numpy as np
+import os
+import queue
 from pyglui import ui
 from typing import Tuple, Optional
 
-import cv2
 import cython_methods
 import gl_utils
-from camera_models import load_intrinsics, Radial_Dist_Camera, Dummy_Camera
 from version_utils import VersionFormat
+from camera_models import Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -269,8 +268,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def get_init_dict(self):
         return {
-             "preview_depth": self._preview_depth,
-             "record_pointcloud": self.record_pointcloud,
+            "preview_depth": self._preview_depth,
+            "record_pointcloud": self.record_pointcloud,
             "auto_exposure": self._current_exposure_mode,
         }
 
