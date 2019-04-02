@@ -253,7 +253,6 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
 
-        self.fps = 30
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
 
@@ -501,7 +500,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def frame_rates(self):
-        return (30, 30)
+        return 1, self.camera.getMaxFrameRate() if self.online else 30
 
     @property
     def frame_sizes(self):
@@ -509,7 +508,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def frame_rate(self):
-        return self.fps
+        return self.camera.getFrameRate() if self.online else 30
 
     @frame_rate.setter
     def frame_rate(self, new_rate):
@@ -518,10 +517,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         rate = self.frame_rates[best_rate_idx]
         if rate != new_rate:
             logger.warning(
-                "%sfps capture mode not available at (%s) on 'Fake Source'. Selected %sfps. "
+                "%sfps capture mode not available at (%s) on 'PicoFlexx Source'. Selected %sfps. "
                 % (new_rate, self.frame_size, rate)
             )
-        self.fps = rate
+        roypy_wrap(self.camera.setFrameRate, rate)
 
     @property
     def jpeg_support(self):
