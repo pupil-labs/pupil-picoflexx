@@ -394,6 +394,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera = None
 
     def on_notify(self, notification):
+        if not self.menu:  # we've never been online
+            return
+
         if notification["subject"] == "picoflexx.set_exposure":
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
