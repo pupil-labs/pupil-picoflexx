@@ -294,6 +294,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.set_exposure_mode(self._current_exposure_mode)
         self._online = True
 
+        self.load_camera_state()
+
     def init_ui(self):  # was gui
         self.add_menu()
         self.menu.label = "Pico Flexx"
@@ -325,19 +327,15 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-            exposure_limits = self.camera.getExposureLimits()
             self._ui_exposure = ui.Slider(
                 "_current_exposure",
                 self,
-                min=exposure_limits.first,
-                max=exposure_limits.second,
+                min=0,
+                max=0,
                 setter=self.set_exposure_delayed,
                 label="Exposure",
             )
             self.menu.append(self._ui_exposure)
-
-            self._current_exposure_mode = self.get_exposure_mode()
-            self._ui_exposure.read_only = self._current_exposure_mode
 
             self.menu.append(
                 ui.Switch(
@@ -359,9 +357,30 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
             self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
+
+            self.load_camera_state()
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
+
+    def load_camera_state(self):
+        if not self.online:
+            logger.error("Can't get state, not online")
+            return
+
+        self._current_exposure_mode = self.get_exposure_mode()
+        exposure_limits = self.camera.getExposureLimits()
+        if self._current_exposure > exposure_limits.second:
+            # Exposure is implicitly clamped to new max
+            self._current_exposure = exposure_limits.second
+
+        if getattr(self, 'menu', None) is not None:  # UI is initialized
+            # load exposure mode
+            self._ui_exposure.read_only = self._current_exposure_mode
+
+            # Update UI with exposure limits of this use case
+            self._ui_exposure.minimum = exposure_limits.first
+            self._ui_exposure.maximum = exposure_limits.second
 
     def deinit_ui(self):
         self.remove_menu()
@@ -414,17 +433,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.stopCapture)
         roypy_wrap(self.camera.setUseCase, usecase)
 
-        # FIXME the picoflexx maintains exposure times per usecase
-
-        # Update UI with expsoure limits of this use case
-        exposure_limits = self.camera.getExposureLimits()
-        self._ui_exposure.minimum = exposure_limits.first
-        self._ui_exposure.maximum = exposure_limits.second
-        if self._current_exposure > exposure_limits.second:
-            # Exposure is implicitly clamped to new max
-            self._current_exposure = exposure_limits.second
 
         roypy_wrap(self.camera.startCapture)
+        self.load_camera_state()
 
     def set_exposure_delayed(self, exposure):
         # set displayed exposure early, to reduce jankiness while dragging slider
