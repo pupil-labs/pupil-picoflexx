@@ -239,6 +239,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         auto_exposure=False,
         preview_depth=True,
         record_pointcloud=False,
+        current_exposure=0,
+        selected_usecase=None,
         color_z_min=0.4,
         color_z_max=1.0,
         *args,
@@ -252,7 +254,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
 
-        self.selected_usecase = None
+        self.selected_usecase = selected_usecase
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
 
@@ -260,7 +262,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._recent_depth_frame = None
 
         self._ui_exposure = None
-        self._current_exposure = 0
+        self._current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
         self._preview_depth = preview_depth
 
@@ -271,6 +273,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             "preview_depth": self._preview_depth,
             "record_pointcloud": self.record_pointcloud,
             "auto_exposure": self._current_exposure_mode,
+            "current_exposure": self._current_exposure,
+            "selected_usecase": self.selected_usecase,
         }
 
     def init_device(self):
@@ -291,7 +295,16 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
         except RuntimeError as e:
             return
+
+        # Apply settings
         self.set_exposure_mode(self._current_exposure_mode)
+
+        if self.selected_usecase is not None:
+            self.set_usecase(self.selected_usecase)
+
+        if not self._current_exposure_mode and self._current_exposure != 0:
+            self.set_exposure(self._current_exposure)
+
         self._online = True
 
         self.load_camera_state()
