@@ -253,6 +253,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
 
+        self.selected_usecase = None
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
 
@@ -314,14 +315,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 for uc in range(use_cases.size())
                 if "MIXED" not in use_cases[uc]
             ]
-            default = "Select to activate"
-            use_cases.insert(0, default)
 
             self.menu.append(
                 ui.Selector(
                     "selected_usecase",
                     selection=use_cases,
-                    getter=lambda: default,
+                    getter=lambda: self.selected_usecase,
                     setter=self.set_usecase,
                     label="Activate usecase",
                 )
@@ -368,6 +367,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             logger.error("Can't get state, not online")
             return
 
+        self.selected_usecase = self.camera.getCurrentUseCase()
         self._current_exposure_mode = self.get_exposure_mode()
         exposure_limits = self.camera.getExposureLimits()
         if self._current_exposure > exposure_limits.second:
