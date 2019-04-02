@@ -423,6 +423,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
     def stop_pointcloud_recording(self):
+        if not self.record_pointcloud:
+            return
+
         status = self.camera.stopRecording()
         if status != 0:
             logger.warning(
