@@ -429,12 +429,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
     def set_usecase(self, usecase):
-        if self.camera.isCapturing():
-            roypy_wrap(self.camera.stopCapture)
         roypy_wrap(self.camera.setUseCase, usecase)
 
+        if not self.camera.isCapturing():
+            roypy_wrap(self.camera.startCapture)
 
-        roypy_wrap(self.camera.startCapture)
         self.load_camera_state()
 
     def set_exposure_delayed(self, exposure):
