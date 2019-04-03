@@ -258,8 +258,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
 
-        self._recent_frame = None
-        self._recent_depth_frame = None
+        self._recent_frame = None  # type: Optional[IRFrame]
+        self._recent_depth_frame = None  # type: Optional[DepthFrame]
 
         self._ui_exposure = None
         self._current_exposure = current_exposure
