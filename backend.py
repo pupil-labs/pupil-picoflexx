@@ -414,6 +414,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             depth_preview_menu.append(
                 ui.Slider("_hue_far", self, min=0.0, max=1.0, label="Far Hue")
             )
+            depth_preview_menu.append(ui.Button("Fit distance (15th and 85th percentile)", self._fit_distance))
             depth_preview_menu.append(
                 ui.Slider("_dist_near", self, min=0.0, max=4.8, label="Near Distance (m)")
             )
@@ -430,6 +431,18 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
+
+    def _fit_distance(self):
+        if not self._recent_depth_frame:
+            logger.warning("No recent frame, can't fit hue.")
+            return
+
+        if self._preview_true_depth:
+            depth_data = self._recent_depth_frame.true_depth
+        else:
+            depth_data = self._recent_depth_frame._data.z
+
+        self._dist_near, self._dist_far = np.quantile(depth_data, (0.15, 0.85))
 
     def load_camera_state(self):
         if not self.online:
