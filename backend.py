@@ -280,7 +280,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
         except RuntimeError as e:
             return
-        roypycy.set_exposure_mode(self.camera, self._current_exposure_mode)
+        self.set_exposure_mode(self._current_exposure_mode)
         self._online = True
 
     def init_ui(self):  # was gui
@@ -427,12 +427,16 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         roypy_wrap(self.camera.setExposureTime, exposure)
 
     def get_exposure_mode(self):
-        return roypycy.get_exposure_mode(self.camera) == 1
+        return self.camera.getExposureMode() == roypy.ExposureMode_AUTOMATIC
 
     def set_exposure_mode(self, exposure_mode):
-        roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+        roypy_wrap(
+            self.camera.setExposureMode,
+            roypy.ExposureMode_AUTOMATIC if exposure_mode else roypy.ExposureMode_MANUAL
+        )
         self._current_exposure_mode = exposure_mode
-        self._ui_exposure.read_only = exposure_mode
+        if self._ui_exposure is not None:
+            self._ui_exposure.read_only = exposure_mode
 
     def recent_events(self, events):
         frames = self.get_frames()
