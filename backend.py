@@ -425,26 +425,13 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             return
 
         video_path = os.path.join(rec_loc, "pointcloud.rrf")
-        status = self.camera.startRecording(video_path, 0, 0, 0)
-
-        if status != 0:
-            logger.warning(
-                "setExposureTime: Non-zero return: {} - {}".format(
-                    status, roypy.getStatusString(status)
-                )
-            )
+        roypy_wrap(self.camera.startRecording, (video_path, 0, 0, 0))
 
     def stop_pointcloud_recording(self):
         if not self.record_pointcloud:
             return
 
-        status = self.camera.stopRecording()
-        if status != 0:
-            logger.warning(
-                "setExposureTime: Non-zero return: {} - {}".format(
-                    status, roypy.getStatusString(status)
-                )
-            )
+        roypy_wrap(self.camera.stopRecording)
 
     def set_usecase(self, usecase):
         roypy_wrap(self.camera.setUseCase, usecase)
