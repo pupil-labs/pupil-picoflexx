@@ -3,6 +3,7 @@
 import cython
 import numpy as np
 from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
+from libcpp.cast cimport dynamic_cast
 from libc.stdint cimport uint16_t, uint32_t, uint8_t, int64_t
 
 # From https://stackoverflow.com/a/29343772
@@ -95,6 +96,61 @@ cdef extern from "royale/ICameraDevice.hpp" namespace "royale":
         int getLensParameters(LensParameters &params)
         int registerIRImageListener(IIRImageListener *listener)
         int unregisterIRImageListener()
+
+
+cdef extern from "royale/IReplay.hpp" namespace "royale":
+    cpdef cppclass IReplay:
+        int seek(const uint32_t frameNumber)
+        void loop(const uint8_t restart)
+        void useTimestamps(const uint8_t timestampsUsed)
+        uint32_t frameCount()
+        uint32_t currentFrame()
+        void pause()
+        void resume()
+        uint16_t getFileVersion()
+
+
+cdef class PyIReplay:
+    cdef IReplay *ptr
+
+    cdef set_ptr(self, IReplay *ptr):
+        self.ptr = ptr
+
+    def seek(self, frame_number):
+        return <int>self.ptr[0].seek(frame_number)
+
+    def loop(self, restart):
+        self.ptr[0].loop(restart)
+
+    def use_timestamps(self, timestamps_used):
+        self.ptr[0].useTimestamps(timestamps_used)
+
+    def frame_count(self):
+        return self.ptr[0].frameCount()
+
+    def current_frame(self):
+        return self.ptr[0].currentFrame()
+
+    def pause(self):
+        self.ptr[0].pause()
+
+    def resume(self):
+        self.ptr[0].resume()
+
+    def get_file_version(self):
+        return self.ptr[0].getFileVersion()
+
+ctypedef IReplay* PtrIReplay
+
+
+def toReplay(camera):
+    cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
+    cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
+    cdef IReplay *mycpp_ptr2 = dynamic_cast[PtrIReplay](mycpp_ptr[0])
+
+    replay = PyIReplay()
+    replay.set_ptr(mycpp_ptr2)
+    return replay
 
 
 def get_depth_data_ts(depthdata):
