@@ -395,8 +395,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
             text = ui.Info_Text(
-                "Enabling Preview Depth will display a cumulative histogram colored "
-                "version of the depth data. Disabling the option will display the "
+                "Enabling Preview Depth will display a colourised version of the data "
+                "based on the depth. Disabling the option will display the "
                 "according IR image. Independent of which option is selected, the IR "
                 "image stream will be stored to `world.mp4` during a recording."
             )
