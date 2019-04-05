@@ -442,7 +442,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         else:
             depth_data = self._recent_depth_frame._data.z
 
-        self._dist_near, self._dist_far = np.quantile(depth_data, (0.15, 0.85))
+        self._dist_near, self._dist_far = np.percentile(depth_data, (15, 85))
 
     def load_camera_state(self):
         if not self.online:
