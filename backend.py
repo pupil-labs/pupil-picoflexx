@@ -241,15 +241,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         record_pointcloud=False,
         current_exposure=0,
         selected_usecase=None,
-        color_z_min=0.4,
-        color_z_max=1.0,
         *args,
         **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
-        self.color_z_min = color_z_min
-        self.color_z_max = color_z_max
-
         self.camera = None
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
