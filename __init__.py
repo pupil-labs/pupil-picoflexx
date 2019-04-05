@@ -10,8 +10,8 @@ See COPYING and COPYING.LESSER for license details.
 """
 
 try:
-    from picoflexx.backend import Picoflexx_Source, Picoflexx_Manager
-    from picoflexx.example_plugin import Example_Picoflexx_Plugin
+    from .backend import Picoflexx_Source, Picoflexx_Manager
+    from .example_plugin import Example_Picoflexx_Plugin
 except (ImportError, AssertionError):
     import traceback
     traceback.print_exc()
