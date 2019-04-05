@@ -27,6 +27,7 @@ from version_utils import VersionFormat
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
+from .utils import append_depth_preview_menu, get_hue_color_map
 
 logger = logging.getLogger(__name__)
 
@@ -158,24 +159,7 @@ class DepthFrame(object):
         else:
             original_depth = self._data.z.reshape(self.height, self.width)
 
-        depth_values = (original_depth - dist_near) / (dist_far - dist_near)
-        depth_values = np.clip(depth_values, 0, 1)
-        depth_values = (hue_near + (depth_values * (hue_far - hue_near))) * 255
-        depth_values = depth_values.astype(np.uint8)
-
-        hsv = depth_values[:, :, np.newaxis]
-
-        # set saturation and value to 255
-        a = np.zeros(hsv.shape, dtype=np.uint8)
-        a[:] = 255
-        b = np.concatenate((hsv, a, a), axis=2)
-
-        dest = cv2.cvtColor(b, cv2.COLOR_HSV2BGR)
-
-        # blank out missing data
-        dest[original_depth == 0] = (0, 0, 0)
-
-        return dest
+        return get_hue_color_map(original_depth, hue_near, hue_far, dist_near, dist_far)
 
     @property
     def gray(self):
@@ -394,35 +378,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-            text = ui.Info_Text(
-                "Enabling Preview Depth will display a colourised version of the data "
-                "based on the depth. Disabling the option will display the "
-                "according IR image. Independent of which option is selected, the IR "
-                "image stream will be stored to `world.mp4` during a recording."
-            )
-            self.menu.append(text)
-            self.menu.append(ui.Switch("_preview_depth", self, label="Preview Depth"))
-
-            depth_preview_menu = ui.Growing_Menu("Depth preview settings")
-            depth_preview_menu.collapsed = True
-            depth_preview_menu.append(
-                ui.Info_Text("Set hue and distance ranges for the depth preview.")
-            )
-            depth_preview_menu.append(
-                ui.Slider("_hue_near", self, min=0.0, max=1.0, label="Near Hue")
-            )
-            depth_preview_menu.append(
-                ui.Slider("_hue_far", self, min=0.0, max=1.0, label="Far Hue")
-            )
-            depth_preview_menu.append(ui.Button("Fit distance (15th and 85th percentile)", self._fit_distance))
-            depth_preview_menu.append(
-                ui.Slider("_dist_near", self, min=0.0, max=4.8, label="Near Distance (m)")
-            )
-            depth_preview_menu.append(
-                ui.Slider("_dist_far", self, min=0.2, max=5.0, label="Far Distance (m)")
-            )
-            depth_preview_menu.append(ui.Switch("_preview_true_depth", self, label="Preview using linalg distance"))
-            self.menu.append(depth_preview_menu)
+            append_depth_preview_menu(self)
 
             self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
@@ -431,18 +387,6 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
-
-    def _fit_distance(self):
-        if not self._recent_depth_frame:
-            logger.warning("No recent frame, can't fit hue.")
-            return
-
-        if self._preview_true_depth:
-            depth_data = self._recent_depth_frame.true_depth
-        else:
-            depth_data = self._recent_depth_frame._data.z
-
-        self._dist_near, self._dist_far = np.percentile(depth_data, (15, 85))
 
     def load_camera_state(self):
         if not self.online:
