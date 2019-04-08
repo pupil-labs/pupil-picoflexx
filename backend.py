@@ -37,7 +37,7 @@ except ImportError:
     import traceback
 
     logger.debug(traceback.format_exc())
-    logger.info("Pico Flexx backend requirements (roypy) not installed properly")
+    logger.warning("Pico Flexx backend requirements (roypy) not installed properly")
     raise
 
 assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
