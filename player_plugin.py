@@ -21,7 +21,7 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
 
     def __init__(self, g_pool, **kwargs):
         super().__init__(g_pool)
-        self.order = 0.1
+        self.order = 0.001  # Ensure we're after FileSource but before anything else
         self.menu = None
 
         self._hue_near = kwargs.get('hue_near', 0.0)
@@ -60,7 +60,8 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
         self.g_pool.plugins.clean()
 
     def recent_events(self, events):
-        if not events.get("frame"):
+        frame = events.get("frame")
+        if not frame:
             return
 
         capture = self.g_pool.capture  # type: File_Source
@@ -77,24 +78,17 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
         elif capture.current_frame_idx > self.recording_replay.frame_count():
             # The last frame is fake/nil
             logger.warning("More frames in world.mp4 than pointcloud.rrf?")
-            return
+
+        if self._preview_depth and self._recent_depth_frame is not None:
+            frame.img[:] = self._recent_depth_frame.get_color_mapped(
+                self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
+            )
 
     def init_ui(self):
         self.add_menu()
         self.menu.label = self.pretty_class_name
 
         append_depth_preview_menu(self)
-
-    def gl_display(self):
-        if self._preview_depth and self._recent_depth_frame is not None:
-            self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.get_color_mapped(
-                self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
-            ))
-            gl_utils.glPushMatrix()
-            gl_utils.glFlush()
-            gl_utils.make_coord_system_norm_based()
-            self.g_pool.image_tex.draw()
-            gl_utils.glPopMatrix()
 
     def deinit_ui(self):
         if self.menu is not None:
