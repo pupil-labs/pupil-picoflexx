@@ -24,6 +24,7 @@ import cv2
 import cython_methods
 import gl_utils
 from camera_models import load_intrinsics, Radial_Dist_Camera, Dummy_Camera
+from version_utils import VersionFormat
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -38,6 +39,12 @@ except ImportError:
     logger.debug(traceback.format_exc())
     logger.info("Pico Flexx backend requirements (roypy) not installed properly")
     raise
+
+assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
+    "3.21.1.70"
+), "roypy out of date, please upgrade to newest version. Have: {}, Want: {}".format(
+    roypy.getVersionString(), "3.21.1.70"
+)
 
 try:
     from . import roypycy
