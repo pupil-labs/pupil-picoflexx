@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
     uniqueness = "by_class"
-    icon_chr = chr(0xE061)
+    icon_chr = chr(0xE886)
     icon_font = "pupil_icons"
 
     def __init__(self, g_pool, **kwargs):
