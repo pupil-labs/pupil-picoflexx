@@ -420,7 +420,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             return
 
         video_path = os.path.join(rec_loc, "pointcloud.rrf")
-        roypy_wrap(self.camera.startRecording, (video_path, 0, 0, 0))
+        roypy_wrap(self.camera.startRecording, video_path, 0, 0, 0)
 
     def stop_pointcloud_recording(self):
         if not self.record_pointcloud:
