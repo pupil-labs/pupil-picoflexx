@@ -3,7 +3,7 @@
 1. `cd ~/pupil_capture_settings/plugins`
 1. `git clone https://github.com/papr/pupil-picoflexx.git picoflexx`
 1. Download the [PMD Royale SDK](https://pmdtec.com/picofamily/software-download/)
-1. Unzip the coorect zip file for your operating system, e.g. `libroyale-3.20.0.62-APPLE-x86-64Bit.zip` on macOS
+1. Unzip the coorect zip file for your operating system, e.g. `libroyale-3.21.1.70-APPLE-x86-64Bit.zip` on macOS
 1. Copy the contents from the `Python` sub folder into `~/pupil_capture_settings/plugins/picoflexx`
 
 To verify that everything works as expected, run the example files:

@@ -24,6 +24,7 @@ import cv2
 import cython_methods
 import gl_utils
 from camera_models import load_intrinsics, Radial_Dist_Camera, Dummy_Camera
+from version_utils import VersionFormat
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -36,8 +37,14 @@ except ImportError:
     import traceback
 
     logger.debug(traceback.format_exc())
-    logger.info("Pico Flexx backend requirements (roypy) not installed properly")
+    logger.warning("Pico Flexx backend requirements (roypy) not installed properly")
     raise
+
+assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
+    "3.21.1.70"
+), "roypy out of date, please upgrade to newest version. Have: {}, Want: {}".format(
+    roypy.getVersionString(), "3.21.1.70"
+)
 
 try:
     from . import roypycy
@@ -280,7 +287,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
         except RuntimeError as e:
             return
-        roypycy.set_exposure_mode(self.camera, self._current_exposure_mode)
+        self.set_exposure_mode(self._current_exposure_mode)
         self._online = True
 
     def init_ui(self):  # was gui
@@ -427,12 +434,16 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         roypy_wrap(self.camera.setExposureTime, exposure)
 
     def get_exposure_mode(self):
-        return roypycy.get_exposure_mode(self.camera) == 1
+        return self.camera.getExposureMode() == roypy.ExposureMode_AUTOMATIC
 
     def set_exposure_mode(self, exposure_mode):
-        roypycy.set_exposure_mode(self.camera, 1 if exposure_mode else 0)
+        roypy_wrap(
+            self.camera.setExposureMode,
+            roypy.ExposureMode_AUTOMATIC if exposure_mode else roypy.ExposureMode_MANUAL
+        )
         self._current_exposure_mode = exposure_mode
-        self._ui_exposure.read_only = exposure_mode
+        if self._ui_exposure is not None:
+            self._ui_exposure.read_only = exposure_mode
 
     def recent_events(self, events):
         frames = self.get_frames()
