@@ -57,6 +57,14 @@ def _fit_distance(plugin: Plugin):
     plugin._dist_near, plugin._dist_far = np.percentile(depth_data, (15, 85))
 
 
+def find_setting_source(g_pool):
+    for plugin in g_pool.plugins:
+        if plugin.alive and hasattr(plugin, '_preview_true_depth'):
+            return plugin
+
+    return None
+
+
 def get_hue_color_map(original_depth, hue_near: float, hue_far: float, dist_near: float, dist_far: float):
     depth_values = (original_depth - dist_near) / (dist_far - dist_near)
     depth_values = np.clip(depth_values, 0, 1)
