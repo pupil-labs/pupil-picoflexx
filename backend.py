@@ -571,7 +571,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             if self._preview_depth and self._recent_depth_frame is not None:
                 self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.bgr)
             elif self._recent_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.gray)
+                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.img)
             gl_utils.glFlush()
             gl_utils.make_coord_system_norm_based()
             self.g_pool.image_tex.draw()
