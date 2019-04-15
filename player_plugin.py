@@ -65,19 +65,18 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
             return
 
         capture = self.g_pool.capture  # type: File_Source
+        target_entry = capture.videoset.lookup[capture.current_frame_idx]
+        true_frame = target_entry[1]
 
-        if capture.current_frame_idx < self.recording_replay.frame_count():
-            if capture.current_frame_idx != self.recording_replay.current_frame()\
+        if 0 <= true_frame < self.recording_replay.frame_count():
+            if true_frame != self.recording_replay.current_frame() \
                     or self._recent_depth_frame is None:
-                self.recording_replay.seek(capture.current_frame_idx)
+                self.recording_replay.seek(true_frame)
 
                 # depth data appears to arrive within ~9-12 microseconds
                 self._recent_frame, self._recent_depth_frame = self.queue.get()
 
             events["depth_frame"] = self._recent_depth_frame
-        elif capture.current_frame_idx > self.recording_replay.frame_count():
-            # The last frame is fake/nil
-            logger.warning("More frames in world.mp4 than pointcloud.rrf?")
 
         if self._preview_depth and self._recent_depth_frame is not None:
             frame.img[:] = self._recent_depth_frame.get_color_mapped(
