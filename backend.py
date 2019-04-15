@@ -20,6 +20,7 @@ import queue
 from pyglui import ui
 from typing import Tuple, Optional
 
+import csv_utils
 import cython_methods
 import gl_utils
 from version_utils import VersionFormat
@@ -252,6 +253,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.selected_usecase = selected_usecase
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
+        self.royale_timestamp_offset = None
 
         self._recent_frame = None  # type: Optional[IRFrame]
         self._recent_depth_frame = None  # type: Optional[DepthFrame]
@@ -414,6 +416,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self._switch_record_pointcloud.read_only = False
 
             self.stop_pointcloud_recording()
+            self.append_recording_metadata(notification["rec_path"])
 
     def start_pointcloud_recording(self, rec_loc):
         if not self.record_pointcloud:
@@ -476,10 +479,13 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         except queue.Empty:
             return
 
+        if self.royale_timestamp_offset is None:
+            # use a constant offset so timestamps from the RRF can be matched
+            self.royale_timestamp_offset = self.g_pool.get_timestamp() - time()
+
         # picoflexx time epoch is unix time, readjust timestamps to pupil time
-        time_diff = self.g_pool.get_timestamp() - time()
-        frames.ir.timestamp += time_diff
-        frames.depth.timestamp += time_diff
+        frames.ir.timestamp += self.royale_timestamp_offset
+        frames.depth.timestamp += self.royale_timestamp_offset
 
         # To calculate picoflexx camera delay:
         # self.g_pool.get_timestamp() - frames.ir.timestamp
@@ -575,6 +581,18 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         gl_utils.make_coord_system_pixel_based(
             (self.frame_size[1], self.frame_size[0], 3)
         )
+
+    def append_recording_metadata(self, rec_path):
+        meta_info_path = os.path.join(rec_path, "info.csv")
+
+        with open(meta_info_path, "a", newline="") as csvfile:
+            csv_utils.write_key_value_file(
+                csvfile,
+                {
+                    "Royale Timestamp Offset": self.royale_timestamp_offset,
+                },
+                append=True,
+            )
 
 
 class Picoflexx_Manager(Base_Manager):
