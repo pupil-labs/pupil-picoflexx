@@ -32,7 +32,7 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
         self._preview_depth = kwargs.get('preview_depth', True)
 
         self._recent_depth_frame = None  # type: Optional[DepthFrame]
-        self._recent_ir_frame = None  # type: Optional[IRFrame]
+        self._recent_frame = None  # type: Optional[IRFrame]
         self.recording_camera = None  # type: Optional[roypy.ICameraDevice]
         self.recording_replay = None  # type: Optional[PyIReplay]
 
@@ -72,7 +72,7 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
                 self.recording_replay.seek(capture.current_frame_idx)
 
                 # depth data appears to arrive within ~9-12 microseconds
-                self._recent_ir_frame, self._recent_depth_frame = self.queue.get()
+                self._recent_frame, self._recent_depth_frame = self.queue.get()
 
             events["depth_frame"] = self._recent_depth_frame
         elif capture.current_frame_idx > self.recording_replay.frame_count():
