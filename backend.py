@@ -10,29 +10,29 @@ See COPYING and COPYING.LESSER for license details.
 """
 
 import collections
-import itertools
-import logging
-import queue
-import os
-from time import sleep, time
+from time import time
 
+import cv2
+import logging
 import numpy as np
+import os
+import queue
 from pyglui import ui
 from typing import Tuple, Optional
 
-import cv2
+import csv_utils
 import cython_methods
 import gl_utils
-from camera_models import load_intrinsics, Radial_Dist_Camera, Dummy_Camera
 from version_utils import VersionFormat
+from camera_models import Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
 logger = logging.getLogger(__name__)
 
 try:
-    import picoflexx.roypy as roypy
-    from picoflexx.roypy_platform_utils import PlatformHelper
+    from . import roypy as roypy
+    from .roypy_platform_utils import PlatformHelper
 except ImportError:
     import traceback
 
@@ -146,7 +146,7 @@ class DepthFrame(object):
     @property
     def bgr(self):
         if self._depth_img is None:
-            depth_values = self._data.z.reshape(self.height, self.width)
+            depth_values = self.true_depth.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
             depth_values = depth_values.astype(np.uint16)
             self._depth_img = cython_methods.cumhist_color_map16(depth_values)
@@ -169,6 +169,11 @@ class DepthFrame(object):
     @property
     def noise(self):
         return self._data.noise.reshape(self.height, self.width)
+    
+    @property
+    def true_depth(self):
+        xyz = np.column_stack((self._data.x, self._data.y, self._data.z))
+        return np.linalg.norm(xyz, axis=1)
 
     @property
     def dense_pointcloud(self):
@@ -235,28 +240,26 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         auto_exposure=False,
         preview_depth=True,
         record_pointcloud=False,
-        color_z_min=0.4,
-        color_z_max=1.0,
+        current_exposure=0,
+        selected_usecase=None,
         *args,
         **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
-        self.color_z_min = color_z_min
-        self.color_z_max = color_z_max
-
         self.camera = None
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
 
-        self.fps = 30
+        self.selected_usecase = selected_usecase
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
+        self.royale_timestamp_offset = None
 
-        self._recent_frame = None
-        self._recent_depth_frame = None
+        self._recent_frame = None  # type: Optional[IRFrame]
+        self._recent_depth_frame = None  # type: Optional[DepthFrame]
 
         self._ui_exposure = None
-        self._current_exposure = 0
+        self._current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
         self._preview_depth = preview_depth
 
@@ -264,9 +267,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def get_init_dict(self):
         return {
-             "preview_depth": self._preview_depth,
-             "record_pointcloud": self.record_pointcloud,
+            "preview_depth": self._preview_depth,
+            "record_pointcloud": self.record_pointcloud,
             "auto_exposure": self._current_exposure_mode,
+            "current_exposure": self._current_exposure,
+            "selected_usecase": self.selected_usecase,
         }
 
     def init_device(self):
@@ -287,8 +292,19 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
         except RuntimeError as e:
             return
+
+        # Apply settings
         self.set_exposure_mode(self._current_exposure_mode)
+
+        if self.selected_usecase is not None:
+            self.set_usecase(self.selected_usecase)
+
+        if not self._current_exposure_mode and self._current_exposure != 0:
+            self.set_exposure(self._current_exposure)
+
         self._online = True
+
+        self.load_camera_state()
 
     def init_ui(self):  # was gui
         self.add_menu()
@@ -308,32 +324,26 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 for uc in range(use_cases.size())
                 if "MIXED" not in use_cases[uc]
             ]
-            default = "Select to activate"
-            use_cases.insert(0, default)
 
             self.menu.append(
                 ui.Selector(
                     "selected_usecase",
                     selection=use_cases,
-                    getter=lambda: default,
+                    getter=lambda: self.selected_usecase,
                     setter=self.set_usecase,
                     label="Activate usecase",
                 )
             )
 
-            exposure_limits = self.camera.getExposureLimits()
             self._ui_exposure = ui.Slider(
                 "_current_exposure",
                 self,
-                min=exposure_limits.first,
-                max=exposure_limits.second,
+                min=0,
+                max=0,
                 setter=self.set_exposure_delayed,
                 label="Exposure",
             )
             self.menu.append(self._ui_exposure)
-
-            self._current_exposure_mode = self.get_exposure_mode()
-            self._ui_exposure.read_only = self._current_exposure_mode
 
             self.menu.append(
                 ui.Switch(
@@ -355,9 +365,31 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
             self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
+
+            self.load_camera_state()
         else:
             text = ui.Info_Text("Pico Flexx needs to be reactivated")
             self.menu.append(text)
+
+    def load_camera_state(self):
+        if not self.online:
+            logger.error("Can't get state, not online")
+            return
+
+        self.selected_usecase = self.camera.getCurrentUseCase()
+        self._current_exposure_mode = self.get_exposure_mode()
+        exposure_limits = self.camera.getExposureLimits()
+        if self._current_exposure > exposure_limits.second:
+            # Exposure is implicitly clamped to new max
+            self._current_exposure = exposure_limits.second
+
+        if getattr(self, 'menu', None) is not None:  # UI is initialized
+            # load exposure mode
+            self._ui_exposure.read_only = self._current_exposure_mode
+
+            # Update UI with exposure limits of this use case
+            self._ui_exposure.minimum = exposure_limits.first
+            self._ui_exposure.maximum = exposure_limits.second
 
     def deinit_ui(self):
         self.remove_menu()
@@ -371,6 +403,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.camera = None
 
     def on_notify(self, notification):
+        if not self.menu:  # we've never been online
+            return
+
         if notification["subject"] == "picoflexx.set_exposure":
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
@@ -381,46 +416,28 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self._switch_record_pointcloud.read_only = False
 
             self.stop_pointcloud_recording()
+            self.append_recording_metadata(notification["rec_path"])
 
     def start_pointcloud_recording(self, rec_loc):
         if not self.record_pointcloud:
             return
 
         video_path = os.path.join(rec_loc, "pointcloud.rrf")
-        status = self.camera.startRecording(video_path, 0, 0, 0)
-
-        if status != 0:
-            logger.warning(
-                "setExposureTime: Non-zero return: {} - {}".format(
-                    status, roypy.getStatusString(status)
-                )
-            )
+        roypy_wrap(self.camera.startRecording, video_path, 0, 0, 0)
 
     def stop_pointcloud_recording(self):
-        status = self.camera.stopRecording()
-        if status != 0:
-            logger.warning(
-                "setExposureTime: Non-zero return: {} - {}".format(
-                    status, roypy.getStatusString(status)
-                )
-            )
+        if not self.record_pointcloud:
+            return
+
+        roypy_wrap(self.camera.stopRecording)
 
     def set_usecase(self, usecase):
-        if self.camera.isCapturing():
-            roypy_wrap(self.camera.stopCapture)
         roypy_wrap(self.camera.setUseCase, usecase)
 
-        # FIXME the picoflexx maintains exposure times per usecase
+        if not self.camera.isCapturing():
+            roypy_wrap(self.camera.startCapture)
 
-        # Update UI with expsoure limits of this use case
-        exposure_limits = self.camera.getExposureLimits()
-        self._ui_exposure.minimum = exposure_limits.first
-        self._ui_exposure.maximum = exposure_limits.second
-        if self._current_exposure > exposure_limits.second:
-            # Exposure is implicitly clamped to new max
-            self._current_exposure = exposure_limits.second
-
-        roypy_wrap(self.camera.startCapture)
+        self.load_camera_state()
 
     def set_exposure_delayed(self, exposure):
         # set displayed exposure early, to reduce jankiness while dragging slider
@@ -462,10 +479,13 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         except queue.Empty:
             return
 
+        if self.royale_timestamp_offset is None:
+            # use a constant offset so timestamps from the RRF can be matched
+            self.royale_timestamp_offset = self.g_pool.get_timestamp() - time()
+
         # picoflexx time epoch is unix time, readjust timestamps to pupil time
-        time_diff = self.g_pool.get_timestamp() - time()
-        frames.ir.timestamp += time_diff
-        frames.depth.timestamp += time_diff
+        frames.ir.timestamp += self.royale_timestamp_offset
+        frames.depth.timestamp += self.royale_timestamp_offset
 
         # To calculate picoflexx camera delay:
         # self.g_pool.get_timestamp() - frames.ir.timestamp
@@ -496,7 +516,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def frame_rates(self):
-        return (30, 30)
+        return 1, self.camera.getMaxFrameRate() if self.online else 30
 
     @property
     def frame_sizes(self):
@@ -504,7 +524,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def frame_rate(self):
-        return self.fps
+        return self.camera.getFrameRate() if self.online else 30
 
     @frame_rate.setter
     def frame_rate(self, new_rate):
@@ -513,10 +533,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         rate = self.frame_rates[best_rate_idx]
         if rate != new_rate:
             logger.warning(
-                "%sfps capture mode not available at (%s) on 'Fake Source'. Selected %sfps. "
+                "%sfps capture mode not available at (%s) on 'PicoFlexx Source'. Selected %sfps. "
                 % (new_rate, self.frame_size, rate)
             )
-        self.fps = rate
+        roypy_wrap(self.camera.setFrameRate, rate)
 
     @property
     def jpeg_support(self):
@@ -551,7 +571,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             if self._preview_depth and self._recent_depth_frame is not None:
                 self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.bgr)
             elif self._recent_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.gray)
+                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.img)
             gl_utils.glFlush()
             gl_utils.make_coord_system_norm_based()
             self.g_pool.image_tex.draw()
@@ -561,6 +581,18 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         gl_utils.make_coord_system_pixel_based(
             (self.frame_size[1], self.frame_size[0], 3)
         )
+
+    def append_recording_metadata(self, rec_path):
+        meta_info_path = os.path.join(rec_path, "info.csv")
+
+        with open(meta_info_path, "a", newline="") as csvfile:
+            csv_utils.write_key_value_file(
+                csvfile,
+                {
+                    "Royale Timestamp Offset": self.royale_timestamp_offset,
+                },
+                append=True,
+            )
 
 
 class Picoflexx_Manager(Base_Manager):
