@@ -252,7 +252,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         current_exposure=0,
         selected_usecase=None,
         hue_near=0.0,
-        hue_far=0.55,
+        hue_far=0.75,
         dist_near=0.14,
         dist_far=5.0,
         preview_true_depth=False,

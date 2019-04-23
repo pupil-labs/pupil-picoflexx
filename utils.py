@@ -60,17 +60,19 @@ def _fit_distance(plugin: Plugin):
 def get_hue_color_map(original_depth, hue_near: float, hue_far: float, dist_near: float, dist_far: float):
     depth_values = (original_depth - dist_near) / (dist_far - dist_near)
     depth_values = np.clip(depth_values, 0, 1)
-    depth_values = (hue_near + (depth_values * (hue_far - hue_near))) * 255
-    depth_values = depth_values.astype(np.uint8)
+    depth_values = (hue_near + (depth_values * (hue_far - hue_near))) * 360
+    depth_values = depth_values.astype(np.float32)
 
     hsv = depth_values[:, :, np.newaxis]
 
     # set saturation and value to 255
-    a = np.zeros(hsv.shape, dtype=np.uint8)
-    a[:] = 255
+    a = np.zeros(hsv.shape, dtype=np.float32)
+    a[:] = 1
     b = np.concatenate((hsv, a, a), axis=2)
 
     dest = cv2.cvtColor(b, cv2.COLOR_HSV2BGR)
+    dest *= 255
+    dest = dest.astype(np.uint8)
 
     # blank out missing data
     dest[original_depth == 0] = (0, 0, 0)
