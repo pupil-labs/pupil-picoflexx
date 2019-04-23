@@ -9,24 +9,21 @@ See COPYING and COPYING.LESSER for license details.
 ---------------------------------------------------------------------------~(*)
 """
 
-import collections
-from time import time
-
-import cv2
 import logging
-import numpy as np
 import os
 import queue
+from time import time
 from typing import Optional
+
 from pyglui import ui
 
 import csv_utils
-import cython_methods
 import gl_utils
-from version_utils import VersionFormat
 from camera_models import Radial_Dist_Camera, Dummy_Camera
+from version_utils import VersionFormat
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
+from .frames import DepthDataListener, DepthFrame, IRFrame
 from .utils import append_depth_preview_menu, roypy_wrap, get_hue_color_map
 
 logger = logging.getLogger(__name__)
@@ -55,156 +52,6 @@ except ImportError:
     logger.debug(traceback.format_exc())
     logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
     raise
-
-FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
-
-MICRO_TO_SECONDS = 1e-6
-
-
-class IRFrame(object):
-    def __init__(self, ir_data):
-        self._ir_data = ir_data
-        self.timestamp = ir_data.timestamp * MICRO_TO_SECONDS
-        self.width = ir_data.width
-        self.height = ir_data.height
-        self.shape = self.height, self.width
-        self._ir_img = None
-        self._ir_img_bgr = None
-
-        # indicate that the frame does not have a native yuv or jpeg buffer
-        self.yuv_buffer = None
-        self.jpeg_buffer = None
-
-    @property
-    def img(self):
-        return self.bgr
-
-    @property
-    def gray(self):
-        if self._ir_img is None:
-            self._ir_img = self._ir_data.data
-            self._ir_img.shape = self.shape
-        return self._ir_img
-
-    @property
-    def bgr(self):
-        if self._ir_img_bgr is None:
-            self._ir_img_bgr = cv2.cvtColor(self.gray, cv2.COLOR_GRAY2BGR)
-        return self._ir_img_bgr
-
-
-class DepthFrame(object):
-    def __init__(self, depth_data):
-        self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
-        self.timestamp *= MICRO_TO_SECONDS  # seconds
-        self._data = roypycy.get_backend_data(depth_data)
-        self.exposure_times = depth_data.exposureTimes
-
-        self.height = depth_data.height
-        self.width = depth_data.width
-        self.shape = depth_data.height, depth_data.width, 3
-
-        # indicate that the frame does not have a native yuv or jpeg buffer
-        self.yuv_buffer = None
-        self.jpeg_buffer = None
-
-        self._depth_img = None
-        self._gray = None
-
-    @property
-    def bgr(self):
-        if self._depth_img is None:
-            depth_values = self.true_depth.reshape(self.height, self.width)
-            depth_values = (2 ** 16) * depth_values / depth_values.max()
-            depth_values = depth_values.astype(np.uint16)
-            self._depth_img = cython_methods.cumhist_color_map16(depth_values)
-        return self._depth_img
-
-    def get_color_mapped(self, hue_near: float, hue_far: float, dist_near: float, dist_far: float, use_true_depth: bool):
-        if use_true_depth:
-            original_depth = self.true_depth.reshape(self.height, self.width)
-        else:
-            original_depth = self._data.z.reshape(self.height, self.width)
-
-        return get_hue_color_map(original_depth, hue_near, hue_far, dist_near, dist_far)
-
-    @property
-    def gray(self):
-        if self._gray is None:
-            self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-        return self._gray
-
-    @property
-    def img(self):
-        return self.bgr
-
-    @property
-    def confidence(self):
-        return self._data.depthConfidence.reshape(self.height, self.width)
-
-    @property
-    def noise(self):
-        return self._data.noise.reshape(self.height, self.width)
-    
-    @property
-    def true_depth(self):
-        xyz = np.column_stack((self._data.x, self._data.y, self._data.z))
-        return np.linalg.norm(xyz, axis=1)
-
-    @property
-    def dense_pointcloud(self):
-        return self._data[["x", "y", "z"]]
-
-
-class DepthDataListener(roypy.IDepthDataListener):
-    current_index = 0
-
-    def __init__(self, queue):
-        super().__init__()
-        self.queue = queue
-        self._ir_ref = None
-
-        self._data_depth = None
-        self._data_ir = None  # type: roypycy.PyIrImage
-
-    def _check_frame(self):
-        if self._data_depth is None or self._data_ir is None:
-            return
-        if roypycy.get_depth_data_ts(self._data_depth) != self._data_ir.timestamp:
-            return
-
-        try:
-            frame_depth = DepthFrame(self._data_depth)
-            frame_ir = IRFrame(self._data_ir)
-            frame_depth.index = frame_ir.index = self.current_index
-            self.current_index += 1
-
-            self.queue.put(FramePair(ir=frame_ir, depth=frame_depth), block=False)
-        except queue.Full:
-            pass  # dropping frame pair
-        except Exception:
-            import traceback
-
-            traceback.print_exc()
-
-        self._data_depth = None
-        self._data_ir = None
-
-    def onNewData(self, data):
-        self._data_depth = data
-        self._check_frame()
-
-    def onNewIrData(self, data: roypycy.PyIrImage):
-        self._data_ir = data
-        self._check_frame()
-
-    def registerIrListener(self, camera):
-        self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
-
-    def unregisterIrListener(self, camera):
-        if self._ir_ref:
-            roypycy.unregister_ir_image_listener(camera, self._ir_ref, self.onNewData)
-            self._ir_ref = None
 
 
 class Picoflexx_Source(Playback_Source, Base_Source):

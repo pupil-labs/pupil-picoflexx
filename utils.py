@@ -8,6 +8,8 @@ from pyglui import ui
 from plugin import Plugin
 from . import roypy
 
+MICRO_TO_SECONDS = 1e-6
+
 logger = logging.getLogger(__name__)
 
 

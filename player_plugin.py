@@ -9,7 +9,7 @@ from pyglui import ui
 from plugin import Visualizer_Plugin_Base
 from video_capture import File_Source
 from . import roypy, roypycy
-from .backend import DepthFrame, IRFrame, roypy_wrap, DepthDataListener
+from .frames.depth_data_listener import DepthDataListener
 from .roypycy import PyIReplay
 from .utils import append_depth_preview_menu, roypy_wrap
 
