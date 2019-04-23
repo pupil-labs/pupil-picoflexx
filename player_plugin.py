@@ -11,7 +11,7 @@ from video_capture import File_Source
 from . import roypy, roypycy
 from .backend import DepthFrame, IRFrame, roypy_wrap, DepthDataListener
 from .roypycy import PyIReplay
-from .utils import append_depth_preview_menu
+from .utils import append_depth_preview_menu, roypy_wrap
 
 logger = logging.getLogger(__name__)
 

@@ -17,8 +17,8 @@ import logging
 import numpy as np
 import os
 import queue
+from typing import Optional
 from pyglui import ui
-from typing import Tuple, Optional
 
 import csv_utils
 import cython_methods
@@ -27,7 +27,7 @@ from version_utils import VersionFormat
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
-from .utils import append_depth_preview_menu, get_hue_color_map
+from .utils import append_depth_preview_menu, roypy_wrap, get_hue_color_map
 
 logger = logging.getLogger(__name__)
 
@@ -59,39 +59,6 @@ except ImportError:
 FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
 
 MICRO_TO_SECONDS = 1e-6
-
-
-def roypy_wrap(
-        func,
-        *args,
-        check_status: bool = True,
-        tag: str = None,
-        reraise: bool = False,
-        level: int = logging.WARNING,
-        **kwargs
-) -> Tuple[Optional[RuntimeError], Optional[int]]:
-    func_name = tag or getattr(func, '__name__', None) or 'Unknown function'
-
-    try:
-        status = func(*args, **kwargs)
-    except RuntimeError as e:
-        if e.args:
-            logger.log(level, "{}: {}".format(func_name, e.args[0]))
-        else:
-            logger.log(level, "{}: RuntimeError".format(func_name))
-
-        if reraise:
-            raise
-
-        return e, None
-
-    if check_status and status != 0:
-        logger.log(
-            level,
-            "{}: Non-zero return: {} - {}".format(func_name, status, roypy.getStatusString(status))
-        )
-
-        return None, status
 
 
 class IRFrame(object):
