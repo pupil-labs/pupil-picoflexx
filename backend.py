@@ -27,6 +27,7 @@ from version_utils import VersionFormat
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
+from .utils import append_depth_preview_menu, get_hue_color_map
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,14 @@ class DepthFrame(object):
             self._depth_img = cython_methods.cumhist_color_map16(depth_values)
         return self._depth_img
 
+    def get_color_mapped(self, hue_near: float, hue_far: float, dist_near: float, dist_far: float, use_true_depth: bool):
+        if use_true_depth:
+            original_depth = self.true_depth.reshape(self.height, self.width)
+        else:
+            original_depth = self._data.z.reshape(self.height, self.width)
+
+        return get_hue_color_map(original_depth, hue_near, hue_far, dist_near, dist_far)
+
     @property
     def gray(self):
         if self._gray is None:
@@ -242,6 +251,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         record_pointcloud=False,
         current_exposure=0,
         selected_usecase=None,
+        hue_near=0.0,
+        hue_far=0.75,
+        dist_near=0.14,
+        dist_far=5.0,
+        preview_true_depth=False,
         *args,
         **kwargs,
     ):
@@ -262,6 +276,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self._current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
         self._preview_depth = preview_depth
+        self._hue_near = hue_near
+        self._hue_far = hue_far
+        self._dist_near = dist_near
+        self._dist_far = dist_far
+        self._preview_true_depth = preview_true_depth
 
         self.init_device()
 
@@ -272,6 +291,11 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             "auto_exposure": self._current_exposure_mode,
             "current_exposure": self._current_exposure,
             "selected_usecase": self.selected_usecase,
+            "hue_near": self._hue_near,
+            "hue_far": self._hue_far,
+            "dist_near": self._dist_near,
+            "dist_far": self._dist_far,
+            "preview_true_depth": self._preview_true_depth,
         }
 
     def init_device(self):
@@ -354,14 +378,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-            text = ui.Info_Text(
-                "Enabling Preview Depth will display a cumulative histogram colored "
-                "version of the depth data. Disabling the option will display the "
-                "according IR image. Independent of which option is selected, the IR "
-                "image stream will be stored to `world.mp4` during a recording."
-            )
-            self.menu.append(text)
-            self.menu.append(ui.Switch("_preview_depth", self, label="Preview Depth"))
+            append_depth_preview_menu(self)
 
             self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
@@ -569,7 +586,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def gl_display(self):
         if self.online:
             if self._preview_depth and self._recent_depth_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.bgr)
+                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.get_color_mapped(
+                    self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
+                ))
             elif self._recent_frame is not None:
                 self.g_pool.image_tex.update_from_ndarray(self._recent_frame.img)
             gl_utils.glFlush()
