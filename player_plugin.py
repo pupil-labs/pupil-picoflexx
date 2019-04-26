@@ -118,6 +118,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
 
                 # depth data appears to arrive within ~9-12 microseconds
                 self._recent_frame, self._recent_depth_frame = self.queue.get()
+                self.current_exposure = self._recent_depth_frame.exposure_times[1]
 
             events["depth_frame"] = self._recent_depth_frame
 
