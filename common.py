@@ -7,8 +7,11 @@ from OpenGL.GL import *
 from pyglui import ui
 from pyglui.pyfontstash import fontstash
 
+import glfw
+from methods import denormalize, normalize
 from plugin import Plugin
 from .frames import DepthDataListener, DepthFrame, IRFrame
+from .utils import clamp
 
 
 def indicators_for(near, far, width, ignore_clip: bool = False):
@@ -73,6 +76,7 @@ class PicoflexxCommon(Plugin):
         self._colorbar_size = (300, 20)
         self._tex_id_color_bar = None
         self._current_opts = None
+        self._mouse_drag_pos = None  # type: Optional[Tuple[int, int]]
 
     def on_window_resize(self, window, w, h):
         self._camera_render_size = w, h
@@ -146,6 +150,48 @@ class PicoflexxCommon(Plugin):
             draw_indicator(i, leq=near == i, geq=far == i)
 
         glTranslate(-x, -(y + h + gap), 0)
+
+    def camera_to_screen_coords(self, pos: Tuple) -> Tuple[int, int]:
+        pos = denormalize(pos, self._camera_render_size)
+        pos = normalize(pos, self.g_pool.capture.frame_size)
+        return int(pos[0]), int(pos[1])
+
+    @property
+    def _colorbar_bounds(self):
+        u, d, l, r = self._colorbar_offs
+        x, y = self._colorbar_pos
+        w, h = self._colorbar_size
+
+        return x - l, y - u, x + w + r, y + h + d
+
+    def on_click(self, pos, button, action):
+        super().on_click(pos, button, action)
+
+        if self.preview_depth:
+            pos = self.camera_to_screen_coords(pos)
+            x1, y1, x2, y2 = self._colorbar_bounds
+
+            if x1 <= pos[0] <= x2 and y1 <= pos[1] <= y2:
+                if button == glfw.GLFW_MOUSE_BUTTON_LEFT and action == glfw.GLFW_PRESS:
+                    self._mouse_drag_pos = pos
+
+        if button == glfw.GLFW_MOUSE_BUTTON_LEFT and action == glfw.GLFW_RELEASE:
+            self._mouse_drag_pos = None
+
+    def on_pos(self, pos):
+        super().on_pos(pos)
+
+        pos = self.camera_to_screen_coords(pos)
+        w, h = self._camera_render_size
+
+        if self._mouse_drag_pos is not None:
+            new_x = self._colorbar_pos[0] + pos[0] - self._mouse_drag_pos[0]
+            new_y = self._colorbar_pos[1] + pos[1] - self._mouse_drag_pos[1]
+
+            self._colorbar_pos[0] = clamp(self._colorbar_offs[2], new_x, w - self._colorbar_size[0] - self._colorbar_offs[3])
+            self._colorbar_pos[1] = clamp(self._colorbar_offs[0], new_y, h - self._colorbar_size[1] - self._colorbar_offs[1])
+
+            self._mouse_drag_pos = pos
 
     def deinit_ui(self):
         super().deinit_ui()

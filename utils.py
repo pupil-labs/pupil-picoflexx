@@ -124,3 +124,7 @@ def roypy_wrap(
         )
 
         return None, status
+
+
+def clamp(a, value, b):
+    return max(a, min(value, b))
