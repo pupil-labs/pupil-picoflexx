@@ -36,12 +36,12 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             return
 
         cam_manager = roypy.CameraManager()
-        self.recording_camera = cam_manager.createCamera(cloud_path)
+        self.recording_camera = cam_manager.createCamera(cloud_path)  # type: roypy.ICameraDevice
         roypy_wrap(self.recording_camera.initialize)
 
         # As we're accessing a recording, we need to cast the ICameraDevice
         # to IReplay to access extra functionality
-        self.recording_replay = roypycy.toReplay(self.recording_camera)
+        self.recording_replay = roypycy.toReplay(self.recording_camera)  # type: roypycy.PyIReplay
         self.recording_camera.registerDataListener(self.data_listener)
         self.data_listener.registerIrListener(self.recording_camera)
 
