@@ -5,6 +5,7 @@ from typing import Optional
 
 from pyglui import ui
 
+import gl_utils
 from video_capture import File_Source
 from . import roypy, roypycy
 from .common import PicoflexxCommon
@@ -127,16 +128,21 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
                 self.hue_near, self.hue_far, self.dist_near, self.dist_far, self.preview_true_depth
             )
 
+    def gl_display(self):
+        super().gl_display()
+
+        if self.preview_depth:
+            gl_utils.glPushMatrix()
+            gl_utils.adjust_gl_view(*self.g_pool.camera_render_size)
+            self._render_color_bar()
+            gl_utils.glPopMatrix()
+
     def init_ui(self):
         self.add_menu()
         self.menu.label = self.pretty_class_name
 
         self.menu.append(ui.Slider("frame_offset", self, min=-15, max=15, label="Frame offset"))
         append_depth_preview_menu(self)
-
-    def deinit_ui(self):
-        if self.menu is not None:
-            self.remove_menu()
 
     def cleanup(self):
         if self.recording_camera is not None:

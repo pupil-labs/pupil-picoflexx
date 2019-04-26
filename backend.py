@@ -388,6 +388,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         else:
             super().gl_display()
 
+        if self.preview_depth:
+            gl_utils.adjust_gl_view(*self._camera_render_size)
+            self._render_color_bar()
+
         gl_utils.make_coord_system_pixel_based(
             (self.frame_size[1], self.frame_size[0], 3)
         )
@@ -435,9 +439,6 @@ class Picoflexx_Manager(Base_Manager):
             )
         else:
             logger.warning("Pico Flexx backend is not supported in the eye process.")
-
-    def deinit_ui(self):
-        self.remove_menu()
 
     def recent_events(self, events):
         pass

@@ -1,8 +1,47 @@
 import queue
-from typing import Optional
+from typing import Optional, Tuple
+
+import cv2
+import numpy as np
+from OpenGL.GL import *
+from pyglui import ui
+from pyglui.pyfontstash import fontstash
 
 from plugin import Plugin
 from .frames import DepthDataListener, DepthFrame, IRFrame
+
+
+def indicators_for(near, far, width, ignore_clip: bool = False):
+    INDICATOR_PER_PX = 50
+    STEPS = (1.0, 0.75, 0.5, 0.25, 0.1, 0.05)
+
+    max_indicators = width // INDICATOR_PER_PX + 1
+    selected_step = 2
+    distance_range = far - near
+
+    # find the best step to use
+    for p in reversed(STEPS):
+        if distance_range / p < max_indicators:
+            selected_step = p
+            break
+
+    yield near
+
+    indicator_gap = distance_range / max_indicators  # min gap between indicator labels
+    cur = (near // selected_step) * selected_step
+    while True:
+        cur += selected_step
+
+        if cur >= far:
+            break
+
+        # enforce min label gap around the near and far indicators
+        if not ignore_clip and (near + indicator_gap > cur or far - indicator_gap < cur):
+            continue
+
+        yield cur
+
+    yield far
 
 
 class PicoflexxCommon(Plugin):
@@ -18,10 +57,105 @@ class PicoflexxCommon(Plugin):
 
         self._recent_depth_frame = None  # type: Optional[DepthFrame]
         self._recent_frame = None  # type: Optional[IRFrame]
+        self._camera_render_size = glfw.glfwGetWindowSize(g_pool.main_window)  # capture doesn't provide this in g_pool like player does
         self.current_exposure = 0  # type: int
 
         self.queue = queue.Queue(maxsize=1)
         self.data_listener = DepthDataListener(self.queue)
+
+        self.glfont = fontstash.Context()
+        self.glfont.add_font("opensans", ui.get_opensans_font_path())
+        self.glfont.set_color_float((1.0, 1.0, 1.0, 0.8))
+        self.glfont.set_align_string(v_align="center", h_align="top")
+
+        self._colorbar_offs = (6, 30, 30, 30)
+        self._colorbar_pos = [520, 12]
+        self._colorbar_size = (300, 20)
+        self._tex_id_color_bar = None
+        self._current_opts = None
+
+    def on_window_resize(self, window, w, h):
+        self._camera_render_size = w, h
+
+    def _render_color_bar(self):
+        if self.dist_far == self.dist_near:
+            return
+
+        if (self.hue_near, self.hue_far, self.dist_near, self.dist_far) != self._current_opts:
+            self._generate_color_bar_texture(self._colorbar_size[0])
+
+        x, y = self._colorbar_pos
+        w, h = self._colorbar_size
+        offs = self._colorbar_offs
+
+        glColor4f(0, 0, 0, 0.5)
+        glRecti(x - offs[2], y - offs[0], x + w + offs[3], y + h + offs[1])
+        glColor3f(1, 1, 1)
+
+        try:
+            if self._tex_id_color_bar is None:
+                self._generate_color_bar_texture()
+
+            glBindTexture(GL_TEXTURE_1D, self._tex_id_color_bar)
+
+            glBegin(GL_QUADS)
+            glTexCoord1i(0)
+            glVertex2i(x, y)
+            glVertex2i(x, y + h)
+            glTexCoord1i(1)
+            glVertex2i(x + w, y + h)
+            glVertex2i(x + w, y)
+            glEnd()
+        finally:
+            glBindTexture(GL_TEXTURE_1D, 0)  # Ensure we unbind the 1D texture
+
+        gap, marker_h = 10, 5
+        glTranslate(x, y + h + gap, 0)
+        glLineWidth(1)
+        glColor3f(1, 1, 1)
+
+        glBegin(GL_LINE_STRIP)
+        glVertex2i(0, 0)
+        glVertex2i(w, 0)
+        glEnd()
+
+        near, far = self.dist_near, self.dist_far
+        dist_scale = w / (far - near)
+
+        glBegin(GL_LINES)
+        for i in indicators_for(near, far, self._colorbar_size[0], ignore_clip=True):
+            marker_x = round((i - near) * dist_scale)
+            glVertex2i(marker_x, 0)
+            glVertex2i(marker_x, -marker_h)
+        glEnd()
+
+        def draw_indicator(dist: float, geq: bool = False, leq: bool = False):
+            marker_x = int((dist - near) * dist_scale)
+
+            if dist == int(dist):
+                dist = str(int(dist))
+            else:
+                dist = '{:.2f}'.format(dist)
+
+            text = '{}{}m'.format('\u2264 ' if leq else '\u2265 ' if geq else '', dist)
+            self.glfont.draw_text(marker_x, 0, text)
+
+        self.glfont.set_size(18)
+
+        for i in indicators_for(near, far, self._colorbar_size[0]):
+            draw_indicator(i, leq=near == i, geq=far == i)
+
+        glTranslate(-x, -(y + h + gap), 0)
+
+    def deinit_ui(self):
+        super().deinit_ui()
+
+        if self.menu is not None:
+            self.remove_menu()
+
+        if self._tex_id_color_bar is not None:
+            glDeleteTextures([self._tex_id_color_bar])
+            self._tex_id_color_bar = None
 
     @property
     def recent_frame(self) -> Optional[IRFrame]:
@@ -40,3 +174,31 @@ class PicoflexxCommon(Plugin):
             "dist_far": self.dist_far,
             "preview_true_depth": self.preview_true_depth,
         }
+
+    def _generate_color_bar_texture(self, width: int = 300):
+        glEnable(GL_TEXTURE_1D)
+
+        if self._tex_id_color_bar is None:
+            self._tex_id_color_bar = glGenTextures(1)
+
+        near, far = int(self.hue_near * 360), int(self.hue_far * 360)
+
+        if near == far:
+            return
+
+        glBindTexture(GL_TEXTURE_1D, self._tex_id_color_bar)
+        hues = np.arange(near, far, (far - near) / width, dtype=np.float32).reshape((1, width))
+        hues = hues[:, :, np.newaxis]
+
+        sv = np.ones(hues.shape, dtype=np.float32)  # saturation/value
+        hsv = np.concatenate((hues, sv, sv), axis=2)
+        image = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+        image *= 255
+        image = image.astype(np.uint8)
+
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP)
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB8, width, 0, GL_RGB, GL_UNSIGNED_BYTE, image)
+
+        self._current_opts = (self.hue_near, self.hue_far, self.dist_near, self.dist_far)
