@@ -1,22 +1,20 @@
 import logging
 import os
-import queue
 from decimal import Decimal
 from typing import Optional
 
 from pyglui import ui
 
-from plugin import Visualizer_Plugin_Base
 from video_capture import File_Source
 from . import roypy, roypycy
-from .frames.depth_data_listener import DepthDataListener
+from .common import PicoflexxCommon
 from .roypycy import PyIReplay
 from .utils import append_depth_preview_menu, roypy_wrap
 
 logger = logging.getLogger(__name__)
 
 
-class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
+class Picoflexx_Player_Plugin(PicoflexxCommon):
     uniqueness = "by_class"
     icon_chr = chr(0xE886)
     icon_font = "pupil_icons"
@@ -26,15 +24,6 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
         self.order = 0.001  # Ensure we're after FileSource but before anything else
         self.menu = None
 
-        self._hue_near = kwargs.get('hue_near', 0.0)
-        self._hue_far = kwargs.get('hue_far', 0.75)
-        self._dist_near = kwargs.get('dist_near', 0.14)
-        self._dist_far = kwargs.get('dist_far', 5.0)
-        self._preview_true_depth = kwargs.get('preview_true_depth', False)
-        self._preview_depth = kwargs.get('preview_depth', True)
-
-        self._recent_depth_frame = None  # type: Optional[DepthFrame]
-        self._recent_frame = None  # type: Optional[IRFrame]
         self.recording_camera = None  # type: Optional[roypy.ICameraDevice]
         self.recording_replay = None  # type: Optional[PyIReplay]
         self.frame_offset = 0  # type: int
@@ -53,9 +42,6 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
         # As we're accessing a recording, we need to cast the ICameraDevice
         # to IReplay to access extra functionality
         self.recording_replay = roypycy.toReplay(self.recording_camera)
-
-        self.queue = queue.Queue(maxsize=1)
-        self.data_listener = DepthDataListener(self.queue)
         self.recording_camera.registerDataListener(self.data_listener)
         self.data_listener.registerIrListener(self.recording_camera)
 
@@ -135,9 +121,9 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
 
             events["depth_frame"] = self._recent_depth_frame
 
-        if self._preview_depth and self._recent_depth_frame is not None:
+        if self.preview_depth and self._recent_depth_frame is not None:
             frame.img[:] = self._recent_depth_frame.get_color_mapped(
-                self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
+                self.hue_near, self.hue_far, self.dist_near, self.dist_far, self.preview_true_depth
             )
 
     def init_ui(self):
@@ -158,11 +144,4 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
             del self.recording_camera
 
     def get_init_dict(self):
-        return {
-            "preview_depth": self._preview_depth,
-            "hue_near": self._hue_near,
-            "hue_far": self._hue_far,
-            "dist_near": self._dist_near,
-            "dist_far": self._dist_far,
-            "preview_true_depth": self._preview_true_depth,
-        }
+        return super(PicoflexxCommon, self).get_init_dict()

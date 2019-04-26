@@ -23,7 +23,7 @@ def append_depth_preview_menu(plugin: Plugin):
          if plugin.g_pool.app == 'capture' else "")
     )
     plugin.menu.append(text)
-    plugin.menu.append(ui.Switch("_preview_depth", plugin, label="Preview Depth"))
+    plugin.menu.append(ui.Switch("preview_depth", plugin, label="Preview Depth"))
 
     depth_preview_menu = ui.Growing_Menu("Depth preview settings")
     depth_preview_menu.collapsed = True
@@ -31,39 +31,40 @@ def append_depth_preview_menu(plugin: Plugin):
         ui.Info_Text("Set hue and distance ranges for the depth preview.")
     )
     depth_preview_menu.append(
-        ui.Slider("_hue_near", plugin, min=0.0, max=1.0, label="Near Hue")
+        ui.Slider("hue_near", plugin, min=0.0, max=1.0, label="Near Hue")
     )
     depth_preview_menu.append(
-        ui.Slider("_hue_far", plugin, min=0.0, max=1.0, label="Far Hue")
+        ui.Slider("hue_far", plugin, min=0.0, max=1.0, label="Far Hue")
     )
     depth_preview_menu.append(ui.Button("Fit distance (15th and 85th percentile)", lambda: _fit_distance(plugin)))
     depth_preview_menu.append(
-        ui.Slider("_dist_near", plugin, min=0.0, max=4.8, label="Near Distance (m)")
+        ui.Slider("dist_near", plugin, min=0.0, max=4.8, label="Near Distance (m)")
     )
     depth_preview_menu.append(
-        ui.Slider("_dist_far", plugin, min=0.2, max=5.0, label="Far Distance (m)")
+        ui.Slider("dist_far", plugin, min=0.2, max=5.0, label="Far Distance (m)")
     )
-    depth_preview_menu.append(ui.Switch("_preview_true_depth", plugin, label="Preview using linalg distance"))
+    depth_preview_menu.append(ui.Switch("preview_true_depth", plugin, label="Preview using linalg distance"))
 
     plugin.menu.append(depth_preview_menu)
 
 
 def _fit_distance(plugin: Plugin):
-    if not plugin._recent_depth_frame:
+    if not plugin.recent_depth_frame:
         logger.warning("No recent frame, can't fit hue.")
         return
 
-    if plugin._preview_true_depth:
-        depth_data = plugin._recent_depth_frame.true_depth
+    if plugin.preview_true_depth:
+        depth_data = plugin.recent_depth_frame.true_depth
     else:
-        depth_data = plugin._recent_depth_frame._data.z
+        depth_data = plugin.recent_depth_frame._data.z
 
-    plugin._dist_near, plugin._dist_far = np.percentile(depth_data, (15, 85))
+    near, far = np.percentile(depth_data, (15, 85))
+    plugin.dist_near, plugin.dist_far = float(near), float(far)
 
 
 def find_setting_source(g_pool):
     for plugin in g_pool.plugins:
-        if plugin.alive and hasattr(plugin, '_preview_true_depth'):
+        if plugin.alive and hasattr(plugin, 'preview_true_depth'):
             return plugin
 
     return None

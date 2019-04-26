@@ -13,18 +13,17 @@ import logging
 import os
 import queue
 from time import time
-from typing import Optional
 
 from pyglui import ui
 
 import csv_utils
 import gl_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
+from picoflexx.common import PicoflexxCommon
 from version_utils import VersionFormat
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
-from .frames import DepthDataListener, DepthFrame, IRFrame
-from .utils import append_depth_preview_menu, roypy_wrap, get_hue_color_map
+from .utils import append_depth_preview_menu, roypy_wrap
 
 logger = logging.getLogger(__name__)
 
@@ -54,63 +53,41 @@ except ImportError:
     raise
 
 
-class Picoflexx_Source(Playback_Source, Base_Source):
+class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
     name = "Picoflexx"
 
     def __init__(
-        self,
-        g_pool,
-        auto_exposure=False,
-        preview_depth=True,
-        record_pointcloud=False,
-        current_exposure=0,
-        selected_usecase=None,
-        hue_near=0.0,
-        hue_far=0.75,
-        dist_near=0.14,
-        dist_far=5.0,
-        preview_true_depth=False,
-        *args,
-        **kwargs,
+            self,
+            g_pool,
+            auto_exposure=False,
+            record_pointcloud=False,
+            current_exposure=0,
+            selected_usecase=None,
+            *args,
+            **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
         self.camera = None
-        self.queue = queue.Queue(maxsize=1)
-        self.data_listener = DepthDataListener(self.queue)
 
         self.selected_usecase = selected_usecase
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
         self.royale_timestamp_offset = None
 
-        self._recent_frame = None  # type: Optional[IRFrame]
-        self._recent_depth_frame = None  # type: Optional[DepthFrame]
-
         self._ui_exposure = None
-        self._current_exposure = current_exposure
+        self.current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
-        self._preview_depth = preview_depth
-        self._hue_near = hue_near
-        self._hue_far = hue_far
-        self._dist_near = dist_near
-        self._dist_far = dist_far
-        self._preview_true_depth = preview_true_depth
 
         self.init_device()
 
     def get_init_dict(self):
-        return {
-            "preview_depth": self._preview_depth,
-            "record_pointcloud": self.record_pointcloud,
-            "auto_exposure": self._current_exposure_mode,
-            "current_exposure": self._current_exposure,
-            "selected_usecase": self.selected_usecase,
-            "hue_near": self._hue_near,
-            "hue_far": self._hue_far,
-            "dist_near": self._dist_near,
-            "dist_far": self._dist_far,
-            "preview_true_depth": self._preview_true_depth,
-        }
+        return dict(
+            record_pointcloud=self.record_pointcloud,
+            auto_exposure=self._current_exposure_mode,
+            current_exposure=self.current_exposure,
+            selected_usecase=self.selected_usecase,
+            **super(Picoflexx_Source, self).get_init_dict(),
+        )
 
     def init_device(self):
         cam_manager = roypy.CameraManager()
@@ -137,8 +114,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         if self.selected_usecase is not None:
             self.set_usecase(self.selected_usecase)
 
-        if not self._current_exposure_mode and self._current_exposure != 0:
-            self.set_exposure(self._current_exposure)
+        if not self._current_exposure_mode and self.current_exposure != 0:
+            self.set_exposure(self.current_exposure)
 
         self._online = True
 
@@ -174,7 +151,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             )
 
             self._ui_exposure = ui.Slider(
-                "_current_exposure",
+                "current_exposure",
                 self,
                 min=0,
                 max=0,
@@ -210,9 +187,9 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.selected_usecase = self.camera.getCurrentUseCase()
         self._current_exposure_mode = self.get_exposure_mode()
         exposure_limits = self.camera.getExposureLimits()
-        if self._current_exposure > exposure_limits.second:
+        if self.current_exposure > exposure_limits.second:
             # Exposure is implicitly clamped to new max
-            self._current_exposure = exposure_limits.second
+            self.current_exposure = exposure_limits.second
 
         if getattr(self, 'menu', None) is not None:  # UI is initialized
             # load exposure mode
@@ -272,7 +249,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def set_exposure_delayed(self, exposure):
         # set displayed exposure early, to reduce jankiness while dragging slider
-        self._current_exposure = exposure
+        self.current_exposure = exposure
 
         self.notify_all(
             {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
@@ -302,7 +279,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self._recent_depth_frame = frames.depth
 
             if self._current_exposure_mode:  # auto exposure
-                self._current_exposure = frames.depth.exposure_times[1]
+                self.current_exposure = frames.depth.exposure_times[1]
 
     def get_frames(self):
         try:
@@ -327,8 +304,8 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     @property
     def frame_size(self):
         return (
-            (self._recent_frame.width, self._recent_frame.height)
-            if self._recent_frame
+            (self.recent_frame.width, self.recent_frame.height)
+            if self.recent_frame
             else (1280, 720)
         )
 
@@ -399,12 +376,12 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     def gl_display(self):
         if self.online:
-            if self._preview_depth and self._recent_depth_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.get_color_mapped(
-                    self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
+            if self.preview_depth and self.recent_depth_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self.recent_depth_frame.get_color_mapped(
+                    self.hue_near, self.hue_far, self.dist_near, self.dist_far, self.preview_true_depth
                 ))
-            elif self._recent_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.img)
+            elif self.recent_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self.recent_frame.img)
             gl_utils.glFlush()
             gl_utils.make_coord_system_norm_based()
             self.g_pool.image_tex.draw()
