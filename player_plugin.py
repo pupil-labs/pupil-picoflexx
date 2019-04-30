@@ -134,7 +134,6 @@ class Picoflexx_Player_Plugin(Visualizer_Plugin_Base):
                 self._recent_frame, self._recent_depth_frame = self.queue.get()
 
             events["depth_frame"] = self._recent_depth_frame
-            events["ir_frame"] = self._recent_frame
 
         if self._preview_depth and self._recent_depth_frame is not None:
             frame.img[:] = self._recent_depth_frame.get_color_mapped(
