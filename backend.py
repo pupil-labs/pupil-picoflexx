@@ -218,6 +218,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
             self._switch_record_pointcloud.read_only = True
+            self.frame_count = -1
 
             self.start_pointcloud_recording(notification["rec_path"])
         elif notification["subject"] == "recording.stopped":
@@ -298,6 +299,8 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         # To calculate picoflexx camera delay:
         # self.g_pool.get_timestamp() - frames.ir.timestamp
         # Result: ~2-6ms delay depending on selected usecase
+
+        self.frame_count += 1
 
         return frames
 
