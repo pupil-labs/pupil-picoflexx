@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 import cython_methods
-from .. import roypycy
+from picoflexx.royale.extension import roypycy
 from ..utils import get_hue_color_map, MICRO_TO_SECONDS
 
 

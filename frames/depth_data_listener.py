@@ -1,7 +1,8 @@
 import collections
 import queue
 
-from .. import roypy, roypycy
+from picoflexx import roypy
+from picoflexx.royale.extension import roypycy
 from ..frames.depth_frame import DepthFrame
 from ..frames.ir_frame import IRFrame
 

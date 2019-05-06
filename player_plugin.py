@@ -7,7 +7,8 @@ from pyglui import ui
 
 import gl_utils
 from video_capture import File_Source
-from . import roypy, roypycy
+from picoflexx import roypy
+from picoflexx.royale.extension import roypycy
 from .common import PicoflexxCommon
 from .roypycy import PyIReplay
 from .utils import append_depth_preview_menu, roypy_wrap

@@ -20,10 +20,11 @@ import csv_utils
 import gl_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from picoflexx.common import PicoflexxCommon
+from picoflexx.royale import roypy_wrap
 from version_utils import VersionFormat
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
-from .utils import append_depth_preview_menu, roypy_wrap
+from .utils import append_depth_preview_menu
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
 )
 
 try:
-    from . import roypycy
+    from picoflexx.royale.extension import roypycy
 except ImportError:
     import traceback
 

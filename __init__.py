@@ -10,6 +10,8 @@ See COPYING and COPYING.LESSER for license details.
 """
 
 try:
+    from picoflexx.royale.extension import roypycy
+
     from .backend import Picoflexx_Source, Picoflexx_Manager
     from .example_plugin import Example_Picoflexx_Plugin
     from .player_plugin import Picoflexx_Player_Plugin
