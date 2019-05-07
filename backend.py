@@ -11,7 +11,6 @@ See COPYING and COPYING.LESSER for license details.
 
 import logging
 import os
-import queue
 from time import time
 
 from pyglui import ui
@@ -19,38 +18,12 @@ from pyglui import ui
 import csv_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from picoflexx.common import PicoflexxCommon
-from picoflexx.royale import roypy_wrap
-from version_utils import VersionFormat
+from picoflexx.royale import RoyaleCameraDevice
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 from .utils import append_depth_preview_menu
 
 logger = logging.getLogger(__name__)
-
-try:
-    from . import roypy as roypy
-    from .roypy_platform_utils import PlatformHelper
-except ImportError:
-    import traceback
-
-    logger.debug(traceback.format_exc())
-    logger.warning("Pico Flexx backend requirements (roypy) not installed properly")
-    raise
-
-assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
-    "3.21.1.70"
-), "roypy out of date, please upgrade to newest version. Have: {}, Want: {}".format(
-    roypy.getVersionString(), "3.21.1.70"
-)
-
-try:
-    from picoflexx.royale.extension import roypycy
-except ImportError:
-    import traceback
-
-    logger.debug(traceback.format_exc())
-    logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
-    raise
 
 
 class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
@@ -61,13 +34,13 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             g_pool,
             auto_exposure=False,
             record_pointcloud=False,
-            current_exposure=0,
+            current_exposure=2000,
             selected_usecase=None,
             *args,
             **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
-        self.camera = None
+        self.camera = RoyaleCameraDevice()
 
         self.selected_usecase = selected_usecase
         self.frame_count = 0
@@ -90,22 +63,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         )
 
     def init_device(self):
-        cam_manager = roypy.CameraManager()
-        try:
-            cam_id = cam_manager.getConnectedCameraList()[0]
-        except IndexError:
-            logger.error("No Pico Flexx camera connected")
-            return
-
-        self.camera_id = cam_id
-        self.camera = cam_manager.createCamera(cam_id)
         self.camera.initialize()
-        self.camera.registerDataListener(self.data_listener)
-        self.data_listener.registerIrListener(self.camera)
-        try:
-            # can sporadically claim "Camera is disconnected"
-            roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
-        except RuntimeError as e:
+
+        if not self.camera.is_connected():
+            logger.info("Camera not connected")
             return
 
         # Apply settings
@@ -133,7 +94,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.menu.append(text)
 
         if self.online:
-            use_cases = self.camera.getUseCases()
+            use_cases = self.camera.get_usecases()
             use_cases = [
                 use_cases[uc]
                 for uc in range(use_cases.size())
@@ -184,30 +145,27 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             logger.error("Can't get state, not online")
             return
 
-        self.selected_usecase = self.camera.getCurrentUseCase()
+        self.selected_usecase = self.camera.get_current_usecase()
         self._current_exposure_mode = self.get_exposure_mode()
-        exposure_limits = self.camera.getExposureLimits()
-        if self.current_exposure > exposure_limits.second:
+        low, high = self.camera.get_exposure_limits()
+        if self.current_exposure > high:
             # Exposure is implicitly clamped to new max
-            self.current_exposure = exposure_limits.second
+            self.current_exposure = high
 
         if getattr(self, 'menu', None) is not None:  # UI is initialized
             # load exposure mode
             self._ui_exposure.read_only = self._current_exposure_mode
 
             # Update UI with exposure limits of this use case
-            self._ui_exposure.minimum = exposure_limits.first
-            self._ui_exposure.maximum = exposure_limits.second
+            self._ui_exposure.minimum = low
+            self._ui_exposure.maximum = high
 
     def deinit_ui(self):
         self.remove_menu()
 
     def cleanup(self):
-        if self.camera:
-            if self.camera.isConnected() and self.camera.isCapturing():
-                roypy_wrap(self.camera.stopCapture)
-            self.camera.unregisterDataListener()
-            self.data_listener.unregisterIrListener(self.camera)
+        if self.camera is not None:
+            self.camera.close()
             self.camera = None
 
     def on_notify(self, notification):
@@ -232,19 +190,16 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             return
 
         video_path = os.path.join(rec_loc, "pointcloud.rrf")
-        roypy_wrap(self.camera.startRecording, video_path, 0, 0, 0)
+        self.camera.start_recording(video_path)
 
     def stop_pointcloud_recording(self):
         if not self.record_pointcloud:
             return
 
-        roypy_wrap(self.camera.stopRecording)
+        self.camera.stop_recording()
 
     def set_usecase(self, usecase):
-        roypy_wrap(self.camera.setUseCase, usecase)
-
-        if not self.camera.isCapturing():
-            roypy_wrap(self.camera.startCapture)
+        self.camera.set_usecase(usecase)
 
         self.load_camera_state()
 
@@ -257,17 +212,14 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         )
 
     def set_exposure(self, exposure):
-        roypy_wrap(self.camera.setExposureTime, exposure)
+        self.camera.set_exposure(exposure)
 
     def get_exposure_mode(self):
-        return self.camera.getExposureMode() == roypy.ExposureMode_AUTOMATIC
+        return self.camera.get_exposure_mode()
 
     def set_exposure_mode(self, exposure_mode):
-        roypy_wrap(
-            self.camera.setExposureMode,
-            roypy.ExposureMode_AUTOMATIC if exposure_mode else roypy.ExposureMode_MANUAL
-        )
-        self._current_exposure_mode = exposure_mode
+        self._current_exposure_mode = self.camera.set_exposure_mode(exposure_mode)
+
         if self._ui_exposure is not None:
             self._ui_exposure.read_only = exposure_mode
 
@@ -283,9 +235,8 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
                 self.current_exposure = frames.depth.exposure_times[1]
 
     def get_frames(self):
-        try:
-            frames = self.queue.get(True, 0.02)
-        except queue.Empty:
+        frames = self.camera.get_frame(block=True, timeout=0.02)
+        if frames is None:
             return
 
         if self.royale_timestamp_offset is None:
@@ -319,7 +270,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
     @property
     def frame_rates(self):
-        return 1, self.camera.getMaxFrameRate() if self.online else 30
+        return 1, self.camera.get_max_frame_rate() if self.online else 30
 
     @property
     def frame_sizes(self):
@@ -327,7 +278,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
     @property
     def frame_rate(self):
-        return self.camera.getFrameRate() if self.online else 30
+        return self.camera.get_frame_rate() if self.online else 30
 
     @frame_rate.setter
     def frame_rate(self, new_rate):
@@ -339,7 +290,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
                 "%sfps capture mode not available at (%s) on 'PicoFlexx Source'. Selected %sfps. "
                 % (new_rate, self.frame_size, rate)
             )
-        roypy_wrap(self.camera.setFrameRate, rate)
+        self.camera.set_frame_rate(rate)
 
     @property
     def jpeg_support(self):
@@ -347,7 +298,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
     @property
     def online(self):
-        return self.camera and self.camera.isConnected() and self.camera.isCapturing()
+        return self.camera and self.camera.is_connected() and self.camera.is_capturing()
 
     @property
     def intrinsics(self):
@@ -355,11 +306,11 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             return self._intrinsics or Dummy_Camera(self.frame_size, self.name)
 
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
-            lens_params = roypycy.get_lens_parameters(self.camera)
-            c_x, c_y = lens_params["principalPoint"]
-            f_x, f_y = lens_params["focalLength"]
-            p_1, p_2 = lens_params["distortionTangential"]
-            k_1, k_2, *k_other = lens_params["distortionRadial"]
+            lens_params = self.camera.get_lens_parameters()
+            c_x, c_y = lens_params.principal_point
+            f_x, f_y = lens_params.focal_length
+            p_1, p_2 = lens_params.distortion_tangential
+            k_1, k_2, *k_other = lens_params.distortion_radial
             K = [[f_x, 0.0, c_x], [0.0, f_y, c_y], [0.0, 0.0, 1.0]]
             D = k_1, k_2, p_1, p_2, *k_other
             self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)

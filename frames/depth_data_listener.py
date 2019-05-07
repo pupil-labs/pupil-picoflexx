@@ -50,11 +50,3 @@ class DepthDataListener(roypy.IDepthDataListener):
     def onNewIrData(self, data: roypycy.PyIrImage):
         self._data_ir = data
         self._check_frame()
-
-    def registerIrListener(self, camera):
-        self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
-
-    def unregisterIrListener(self, camera):
-        if self._ir_ref:
-            roypycy.unregister_ir_image_listener(camera, self._ir_ref, self.onNewData)
-            self._ir_ref = None

@@ -177,7 +177,7 @@ class RoyaleCameraDevice:
             **kwargs,
         )
 
-    def get_frame(self, block: bool = True, timeout: Optional[float] = 0.02) -> Optional[FramePair]:
+    def get_frame(self, block: bool = True, timeout: Optional[float] = None) -> Optional[FramePair]:
         try:
             return self._queue.get(block, timeout)
         except queue.Empty:

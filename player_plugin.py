@@ -107,7 +107,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
                 self.recording_replay.seek(true_frame)
 
                 # depth data appears to arrive within ~9-12 microseconds
-                self._recent_frame, self._recent_depth_frame = self.recording_replay.get_frame(timeout=None)
+                self._recent_frame, self._recent_depth_frame = self.recording_replay.get_frame()
                 self.current_exposure = self._recent_depth_frame.exposure_times[1]
 
             events["depth_frame"] = self._recent_depth_frame

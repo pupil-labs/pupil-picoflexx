@@ -65,9 +65,6 @@ class PicoflexxCommon(Plugin):
         self._camera_render_size = glfw.glfwGetWindowSize(g_pool.main_window)  # capture doesn't provide this in g_pool like player does
         self.current_exposure = 0  # type: int
 
-        self.queue = queue.Queue(maxsize=1)
-        self.data_listener = DepthDataListener(self.queue)
-
         self.glfont = fontstash.Context()
         self.glfont.add_font("opensans", ui.get_opensans_font_path())
         self.glfont.set_color_float((1.0, 1.0, 1.0, 0.8))
