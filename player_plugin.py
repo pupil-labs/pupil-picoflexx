@@ -130,13 +130,15 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             )
 
     def gl_display(self):
-        super().gl_display()
-
         if self.preview_depth:
             gl_utils.glPushMatrix()
             gl_utils.adjust_gl_view(*self.g_pool.camera_render_size)
             self._render_color_bar()
             gl_utils.glPopMatrix()
+
+    @property
+    def online(self):
+        return True
 
     def init_ui(self):
         self.add_menu()

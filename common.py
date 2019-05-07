@@ -1,4 +1,5 @@
 import queue
+from builtins import NotImplementedError
 from typing import Optional, Tuple
 
 import cv2
@@ -7,6 +8,7 @@ from OpenGL.GL import *
 from pyglui import ui
 from pyglui.pyfontstash import fontstash
 
+import gl_utils
 import glfw
 from methods import denormalize, normalize
 from plugin import Plugin
@@ -49,7 +51,7 @@ def indicators_for(near, far, width, ignore_clip: bool = False):
 
 class PicoflexxCommon(Plugin):
     def __init__(self, g_pool, *args, **kwargs):
-        super(PicoflexxCommon, self).__init__(g_pool, *args, **kwargs)
+        super(PicoflexxCommon, self).__init__(g_pool)
 
         self.hue_near = kwargs.get('hue_near', 0.0)
         self.hue_far = kwargs.get('hue_far', 0.75)
@@ -210,6 +212,40 @@ class PicoflexxCommon(Plugin):
     @property
     def recent_depth_frame(self) -> Optional[DepthFrame]:
         return self._recent_depth_frame
+
+    @property
+    def frame_size(self):
+        return (
+            (self.recent_frame.width, self.recent_frame.height)
+            if self.recent_frame
+            else (1280, 720)
+        )
+
+    def gl_display(self):
+        if self.online:
+            if self.preview_depth and self.recent_depth_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self.recent_depth_frame.get_color_mapped(
+                    self.hue_near, self.hue_far, self.dist_near, self.dist_far, self.preview_true_depth
+                ))
+            elif self.recent_frame is not None:
+                self.g_pool.image_tex.update_from_ndarray(self.recent_frame.img)
+            gl_utils.glFlush()
+            gl_utils.make_coord_system_norm_based()
+            self.g_pool.image_tex.draw()
+        else:
+            super().gl_display()
+
+        if self.preview_depth:
+            gl_utils.adjust_gl_view(*self._camera_render_size)
+            self._render_color_bar()
+
+        gl_utils.make_coord_system_pixel_based(
+            (self.frame_size[1], self.frame_size[0], 3)
+        )
+
+    @property
+    def online(self):
+        raise NotImplementedError()
 
     def get_init_dict(self):
         return {

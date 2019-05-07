@@ -17,7 +17,6 @@ from time import time
 from pyglui import ui
 
 import csv_utils
-import gl_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from picoflexx.common import PicoflexxCommon
 from picoflexx.royale import roypy_wrap
@@ -305,14 +304,6 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         return frames
 
-    @property
-    def frame_size(self):
-        return (
-            (self.recent_frame.width, self.recent_frame.height)
-            if self.recent_frame
-            else (1280, 720)
-        )
-
     # @frame_size.setter
     # def frame_size(self, new_size):
     #     # closest match for size
@@ -377,28 +368,6 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
     @intrinsics.setter
     def intrinsics(self, model):
         logger.error("Picoflexx backend does not support setting intrinsics manually")
-
-    def gl_display(self):
-        if self.online:
-            if self.preview_depth and self.recent_depth_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self.recent_depth_frame.get_color_mapped(
-                    self.hue_near, self.hue_far, self.dist_near, self.dist_far, self.preview_true_depth
-                ))
-            elif self.recent_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self.recent_frame.img)
-            gl_utils.glFlush()
-            gl_utils.make_coord_system_norm_based()
-            self.g_pool.image_tex.draw()
-        else:
-            super().gl_display()
-
-        if self.preview_depth:
-            gl_utils.adjust_gl_view(*self._camera_render_size)
-            self._render_color_bar()
-
-        gl_utils.make_coord_system_pixel_based(
-            (self.frame_size[1], self.frame_size[0], 3)
-        )
 
     def append_recording_metadata(self, rec_path):
         meta_info_path = os.path.join(rec_path, "info.csv")
