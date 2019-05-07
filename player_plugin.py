@@ -1,17 +1,14 @@
 import logging
 import os
 from decimal import Decimal
-from typing import Optional
 
 from pyglui import ui
 
 import gl_utils
+from picoflexx.royale import RoyaleReplayDevice
 from video_capture import File_Source
-from picoflexx import roypy
-from picoflexx.royale.extension import roypycy
 from .common import PicoflexxCommon
-from .roypycy import PyIReplay
-from .utils import append_depth_preview_menu, roypy_wrap
+from .utils import append_depth_preview_menu
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +23,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.order = 0.001  # Ensure we're after FileSource but before anything else
         self.menu = None
 
-        self.recording_camera = None  # type: Optional[roypy.ICameraDevice]
-        self.recording_replay = None  # type: Optional[PyIReplay]
+        self.recording_replay = RoyaleReplayDevice()
         self.frame_offset = 0  # type: int
         self._found_frame_offset = False
 
@@ -37,15 +33,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             logger.error("There is no pointcloud in this recording.")
             return
 
-        cam_manager = roypy.CameraManager()
-        self.recording_camera = cam_manager.createCamera(cloud_path)  # type: roypy.ICameraDevice
-        roypy_wrap(self.recording_camera.initialize)
-
-        # As we're accessing a recording, we need to cast the ICameraDevice
-        # to IReplay to access extra functionality
-        self.recording_replay = roypycy.toReplay(self.recording_camera)  # type: roypycy.PyIReplay
-        self.recording_camera.registerDataListener(self.data_listener)
-        self.data_listener.registerIrListener(self.recording_camera)
+        self.recording_replay.initialize(cloud_path)
 
     def _abort(self, _):
         self.alive = False
@@ -66,7 +54,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             _, av_frame_idx, av_frame_ts = target_entry
 
             self.recording_replay.seek(rrf)
-            rrf_ts = Decimal(self.queue.get()[0].timestamp)
+            rrf_ts = Decimal(self.recording_replay.get_frame()[0].timestamp)
             av_in_unix = Decimal(av_frame_ts) - dec_offset
 
             return abs(av_in_unix - rrf_ts)
@@ -119,7 +107,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
                 self.recording_replay.seek(true_frame)
 
                 # depth data appears to arrive within ~9-12 microseconds
-                self._recent_frame, self._recent_depth_frame = self.queue.get()
+                self._recent_frame, self._recent_depth_frame = self.recording_replay.get_frame(timeout=None)
                 self.current_exposure = self._recent_depth_frame.exposure_times[1]
 
             events["depth_frame"] = self._recent_depth_frame
@@ -148,10 +136,9 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         append_depth_preview_menu(self)
 
     def cleanup(self):
-        if self.recording_camera is not None:
-            self.recording_camera.unregisterDataListener()
-            self.data_listener.unregisterIrListener(self.recording_camera)
-            del self.recording_camera
+        if self.recording_replay is not None:
+            self.recording_replay.close()
+            self.recording_replay = None
 
     def get_init_dict(self):
         return super(PicoflexxCommon, self).get_init_dict()

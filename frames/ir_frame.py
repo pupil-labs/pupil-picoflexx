@@ -5,11 +5,21 @@ from ..utils import MICRO_TO_SECONDS
 
 class IRFrame(object):
     def __init__(self, ir_data):
-        self._ir_data = ir_data
-        self.timestamp = ir_data.timestamp * MICRO_TO_SECONDS
-        self.width = ir_data.width
-        self.height = ir_data.height
+        if type(ir_data) is dict:
+            self.timestamp = ir_data["timestamp"]
+            self._ir_data = None
+            self.data = ir_data["data"]
+            self.exposure_times = ir_data["exposure_times"]
+            self.width, self.height = ir_data["width"], ir_data["height"]
+        else:
+            self._ir_data = ir_data
+            self.data = ir_data.data
+            self.timestamp = ir_data.timestamp * MICRO_TO_SECONDS
+            self.width = ir_data.width
+            self.height = ir_data.height
+
         self.shape = self.height, self.width
+        self.index = None
         self._ir_img = None
         self._ir_img_bgr = None
 
@@ -24,8 +34,7 @@ class IRFrame(object):
     @property
     def gray(self):
         if self._ir_img is None:
-            self._ir_img = self._ir_data.data
-            self._ir_img.shape = self.shape
+            self._ir_img = self.data.reshape(self.shape)
         return self._ir_img
 
     @property

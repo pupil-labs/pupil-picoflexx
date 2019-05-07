@@ -8,14 +8,21 @@ from ..utils import get_hue_color_map, MICRO_TO_SECONDS
 
 class DepthFrame(object):
     def __init__(self, depth_data):
-        self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
-        self.timestamp *= MICRO_TO_SECONDS  # seconds
-        self._data = roypycy.get_backend_data(depth_data)
-        self.exposure_times = depth_data.exposureTimes
+        if type(depth_data) is dict:
+            self.timestamp = depth_data["timestamp"]
+            self._data = depth_data["_data"]
+            self.exposure_times = depth_data["exposure_times"]
+            self.width, self.height = depth_data["width"], depth_data["height"]
+        else:
+            self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
+            self.timestamp *= MICRO_TO_SECONDS  # seconds
+            self._data = roypycy.get_backend_data(depth_data)
+            self.exposure_times = depth_data.exposureTimes
 
-        self.height = depth_data.height
-        self.width = depth_data.width
-        self.shape = depth_data.height, depth_data.width, 3
+            self.height = depth_data.height
+            self.width = depth_data.width
+
+        self.shape = self.height, self.width, 3
 
         # indicate that the frame does not have a native yuv or jpeg buffer
         self.yuv_buffer = None
