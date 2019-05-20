@@ -43,12 +43,13 @@ class RoyaleCameraDevice:
             return
 
     def close(self):
-        if self.is_connected() and self.is_capturing():
-            self.stop_capture()
+        if self._camera is not None:
+            if self.is_connected() and self.is_capturing():
+                self.stop_capture()
 
-        self.unregister_data_listener()
-        self.unregister_ir_listener()
-        self._camera = None
+            self.unregister_data_listener()
+            self.unregister_ir_listener()
+            self._camera = None
 
     def start_capture(self, **kwargs):
         return roypy_wrap(
@@ -108,7 +109,7 @@ class RoyaleCameraDevice:
         return limits.first, limits.second
 
     def is_connected(self):
-        return self._camera.isConnected()
+        return self._camera is not None and self._camera.isConnected()
 
     def is_capturing(self):
         return self._camera.isCapturing()
