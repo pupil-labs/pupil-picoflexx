@@ -205,10 +205,10 @@ def register_ir_image_listener(camera, callback):
 
     mycpp_ptr[0][0].registerIRImageListener(ir_l)
 
-    return <unsigned long>ir_l
+    return <unsigned long long>ir_l
 
 
-def unregister_ir_image_listener(camera, unsigned long ir_l, callback):
+def unregister_ir_image_listener(camera, unsigned long long ir_l, callback):
     cdef SwigPyObject *swig_obj = <SwigPyObject*>camera.this
     cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
 
