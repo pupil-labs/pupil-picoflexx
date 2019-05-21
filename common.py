@@ -228,7 +228,7 @@ class PicoflexxCommon(Plugin):
                 self.g_pool.image_tex.update_from_ndarray(self.recent_frame.img)
             gl_utils.glFlush()
             gl_utils.make_coord_system_norm_based()
-            self.g_pool.image_tex.draw()
+            self.g_pool.image_tex.draw(interpolation=False)
         else:
             super().gl_display()
 
