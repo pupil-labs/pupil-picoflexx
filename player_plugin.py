@@ -17,6 +17,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
     uniqueness = "by_class"
     icon_chr = chr(0xE886)
     icon_font = "pupil_icons"
+    expected_app = "player"
 
     def __init__(self, g_pool, **kwargs):
         super().__init__(g_pool)
@@ -27,6 +28,14 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.frame_offset = 0  # type: int
         self._found_frame_offset = False
 
+        if self.g_pool.app != self.expected_app:
+            self.gl_display = self._abort
+            logger.error("Expected app {!r} instead of {!r}!.".format(
+                self.expected_app,
+                self.g_pool.app,
+            ))
+            return
+
         cloud_path = os.path.join(self.g_pool.rec_dir, 'pointcloud.rrf')
         if not os.path.exists(cloud_path):
             self.recent_events = self._abort
@@ -35,7 +44,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
 
         self.recording_replay.initialize(cloud_path)
 
-    def _abort(self, _):
+    def _abort(self, _=None):
         self.alive = False
         self.g_pool.plugins.clean()
 
