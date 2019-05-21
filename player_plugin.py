@@ -127,7 +127,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             )
 
     def gl_display(self):
-        if self.preview_depth:
+        if self.recording_replay.is_connected() and self.preview_depth:
             gl_utils.glPushMatrix()
             gl_utils.adjust_gl_view(*self.g_pool.camera_render_size)
             self._render_color_bar()
