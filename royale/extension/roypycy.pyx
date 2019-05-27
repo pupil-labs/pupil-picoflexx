@@ -229,7 +229,7 @@ def get_lens_parameters(camera):
         'principalPoint': (params.principalPoint.first, params.principalPoint.second),
         'focalLength': (params.focalLength.first, params.focalLength.second),
         'distortionTangential': (params.distortionTangential.first, params.distortionTangential.second),
-        'distortionRadial': tuple(x for x in params.distortionRadial),
+        'distortionRadial': (params.distortionRadial[0], params.distortionRadial[1], params.distortionRadial[2]),
     }
 
 
