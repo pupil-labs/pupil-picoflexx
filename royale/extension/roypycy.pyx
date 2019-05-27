@@ -203,7 +203,9 @@ def register_ir_image_listener(camera, callback):
     Py_INCREF(callback)
     cdef PyIRImageListener *ir_l = new PyIRImageListener(<PyObject*>callback, &c_callback)
 
-    mycpp_ptr[0][0].registerIRImageListener(ir_l)
+    cdef int status = <int>mycpp_ptr[0][0].registerIRImageListener(ir_l)
+    if status != 0:
+        raise ValueError("Unexpected status {!r} from registerIRImageListener(ir_l)")
 
     return <unsigned long long>ir_l
 
@@ -213,7 +215,9 @@ def unregister_ir_image_listener(camera, unsigned long long ir_l, callback):
     cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
 
     Py_DECREF(callback)
-    mycpp_ptr[0][0].unregisterIRImageListener()
+    cdef int status = <int>mycpp_ptr[0][0].unregisterIRImageListener()
+    if status != 0:
+        raise ValueError("Unexpected status {!r} from unregisterIRImageListener()")
     cdef PyIRImageListener* ptr = <PyIRImageListener*> ir_l
     del ptr
 
@@ -223,7 +227,9 @@ def get_lens_parameters(camera):
     cdef ICameraDevice **mycpp_ptr = <ICameraDevice**?>swig_obj.ptr
 
     cdef LensParameters params;
-    mycpp_ptr[0][0].getLensParameters(params)
+    cdef int status = <int>mycpp_ptr[0][0].getLensParameters(params)
+    if status != 0:
+        raise ValueError("Unexpected status {!r} from getLensParameters(params)")
 
     return {
         'principalPoint': (params.principalPoint.first, params.principalPoint.second),
