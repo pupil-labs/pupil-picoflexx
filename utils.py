@@ -1,4 +1,7 @@
 import logging
+import os
+import subprocess
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -93,3 +96,17 @@ def get_hue_color_map(original_depth, hue_near: float, hue_far: float, dist_near
 
 def clamp(a, value, b):
     return max(a, min(value, b))
+
+
+def get_version(directory) -> Optional[str]:
+    if not os.path.isdir(directory):
+        directory = os.path.dirname(directory)
+
+    try:
+        process = subprocess.Popen(["git", "describe", "--tags", "--always", "--dirty"], cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if process.wait() == 0:
+            return process.stdout.readline().decode('utf-8').strip()
+    except FileNotFoundError:
+        pass  # git not on path
+
+    return None

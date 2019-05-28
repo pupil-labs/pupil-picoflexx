@@ -11,6 +11,9 @@ See COPYING and COPYING.LESSER for license details.
 
 try:
     from picoflexx.royale.extension import roypycy
+    from .utils import get_version as _get_version
+
+    __version__ = _get_version(__file__) or "Unknown"
 
     from .backend import Picoflexx_Source, Picoflexx_Manager
     from .example_plugin import Example_Picoflexx_Plugin
