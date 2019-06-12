@@ -110,3 +110,28 @@ def get_version(directory) -> Optional[str]:
         pass  # git not on path
 
     return None
+
+
+def monkeypatch_zre_msg_number1():
+    import struct
+
+    def patched_put(self, nr):
+        d = struct.pack('>B', nr % 256)
+        self.struct_data += d
+
+    def patched_get(self):
+        num = struct.unpack_from('>B', self.struct_data, offset=self._needle)
+        self._needle += struct.calcsize('>B')
+        return num[0]
+
+    from pyre import zre_msg
+    zre_msg.ZreMsg._put_number1 = patched_put
+    zre_msg.ZreMsg._get_number1 = patched_get
+
+
+def monkeypatch_pyre_peer_status():
+    def patched(self):
+        return self.status & 0xFF
+
+    from pyre.pyre_peer import PyrePeer
+    PyrePeer.get_status = patched
