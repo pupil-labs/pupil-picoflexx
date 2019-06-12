@@ -18,6 +18,9 @@ try:
     from .backend import Picoflexx_Source, Picoflexx_Manager
     from .example_plugin import Example_Picoflexx_Plugin
     from .player_plugin import Picoflexx_Player_Plugin
+
+    from .mobile.full_remote_rrf import Full_Remote_RRF_Manager
+    from .mobile.full_remote_rrf import Full_Remote_RRF_Source
 except (ImportError, AssertionError):
     import traceback
     traceback.print_exc()
