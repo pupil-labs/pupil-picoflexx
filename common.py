@@ -1,4 +1,3 @@
-import queue
 from builtins import NotImplementedError
 from typing import Optional, Tuple
 
@@ -12,7 +11,7 @@ import gl_utils
 import glfw
 from methods import denormalize, normalize
 from plugin import Plugin
-from .frames import DepthDataListener, DepthFrame, IRFrame
+from .frames import DepthFrame, IRFrame
 from .utils import clamp
 
 
