@@ -531,8 +531,19 @@ class Full_Remote_RRF_Manager(Base_Manager):
                 self._rejoin_in -= 1
 
     def on_event(self, caller, event):
+        current_capture = self.current_capture
+        current_sensor = self.current_sensor
+
         if event["subject"] == "detach":
             logger.debug("detached: %s" % event)
+
+            # If the detached sensors is the one we're capturing, immediately unlink it
+            # so that we can start looking for it to come back as soon as possible.
+            if current_sensor is not None and current_sensor.uuid == event['sensor_uuid']:
+                if current_capture.online:
+                    current_sensor.unlink()
+                current_capture.sensor = None
+
             sensors = [s for s in self.network.sensors.values()]
             if self.selected_host == event["host_uuid"]:
                 if sensors:
@@ -559,6 +570,20 @@ class Full_Remote_RRF_Manager(Base_Manager):
     def recover(self):
         self.g_pool.capture.recover(self.network)
         self._switch_network_group()
+
+    @property
+    def current_sensor(self) -> Optional[Sensor]:
+        if isinstance(self.g_pool.capture, Full_Remote_RRF_Source):
+            return self.g_pool.capture.sensor
+        else:
+            return None
+
+    @property
+    def current_capture(self) -> Optional[Full_Remote_RRF_Source]:
+        if isinstance(self.g_pool.capture, Full_Remote_RRF_Source):
+            return self.g_pool.capture
+        else:
+            return None
 
     def on_notify(self, n):
         """Provides UI for the capture selection
