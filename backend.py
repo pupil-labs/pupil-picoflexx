@@ -48,6 +48,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.royale_timestamp_offset = None
 
         self._ui_exposure = None
+        self._ui_usecase = None
         self.current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
 
@@ -101,15 +102,14 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
                 if "MIXED" not in use_cases[uc]
             ]
 
-            self.menu.append(
-                ui.Selector(
-                    "selected_usecase",
-                    selection=use_cases,
-                    getter=lambda: self.selected_usecase,
-                    setter=self.set_usecase,
-                    label="Activate usecase",
-                )
+            self._ui_usecase = ui.Selector(
+                "selected_usecase",
+                selection=use_cases,
+                getter=lambda: self.selected_usecase,
+                setter=self.set_usecase,
+                label="Activate usecase",
             )
+            self.menu.append(self._ui_usecase)
 
             self._ui_exposure = ui.Slider(
                 "current_exposure",
@@ -176,11 +176,13 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
             self._switch_record_pointcloud.read_only = True
+            self._ui_usecase.read_only = True
             self.frame_count = -1
 
             self.start_pointcloud_recording(notification["rec_path"])
         elif notification["subject"] == "recording.stopped":
             self._switch_record_pointcloud.read_only = False
+            self._ui_usecase.read_only = False
 
             self.stop_pointcloud_recording()
             self.append_recording_metadata(notification["rec_path"])
