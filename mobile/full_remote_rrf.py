@@ -401,6 +401,7 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
 class Full_Remote_RRF_Manager(Base_Manager):
     gui_name = "Remote RRF (Full)"
     group = 'pupil-picoflexx-v1'
+    sensor_type = 'royale_full'
 
     def __init__(self, g_pool):
         super().__init__(g_pool)
@@ -476,7 +477,7 @@ class Full_Remote_RRF_Manager(Base_Manager):
                 (s["sensor_uuid"], s["sensor_name"])
                 for s in self.network.sensors.values()
                 if (
-                        s["sensor_type"] == "royale_full" and s["host_uuid"] == self.selected_host
+                        s["sensor_type"] == self.sensor_type and s["host_uuid"] == self.selected_host
                 )
             ]
             return zip(*sources)
@@ -551,9 +552,8 @@ class Full_Remote_RRF_Manager(Base_Manager):
                 else:
                     self.selected_host = None
                 self.re_build_ndsi_menu()
-
         elif event["subject"] == "attach":
-            if event["sensor_type"] == "video":
+            if event["sensor_type"] == self.sensor_type:
                 logger.debug("attached: {}".format(event))
                 self.notify_all({"subject": "capture_manager.source_found"})
             if not self.selected_host:
