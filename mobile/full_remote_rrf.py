@@ -282,14 +282,10 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
             self._sensor_name, self._host_name
         )
 
-        from pyglui import ui
-
         self.has_ui = True
-        self.uvc_menu = ui.Growing_Menu("UVC Controls")
         self.update_control_menu()
 
     def deinit_ui(self):
-        self.uvc_menu = None
         self.remove_menu()
         self.has_ui = False
 
@@ -368,7 +364,6 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
         from pyglui import ui
 
         del self.menu[:]
-        del self.uvc_menu[:]
         self.control_id_ui_mapping = {}
         if not self.sensor:
             self.menu.append(
@@ -379,17 +374,11 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
             )
             return
 
-        uvc_controls = []
         other_controls = []
         for entry in iter(sorted(self.sensor.controls.items())):
-            if entry[0].startswith("UVC"):
-                uvc_controls.append(entry)
-            else:
-                other_controls.append(entry)
+            other_controls.append(entry)
 
         self.add_controls_to_menu(self.menu, other_controls)
-        self.add_controls_to_menu(self.uvc_menu, uvc_controls)
-        self.menu.append(self.uvc_menu)
 
         self.menu.append(
             ui.Button("Reset to default values", self.sensor.reset_all_control_values)
