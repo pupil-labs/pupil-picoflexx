@@ -36,7 +36,9 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
     ):
         super().__init__(g_pool, **kwargs)
         self.sensor = None
+        # source_id (uuid) will be present when the sensor is selected manually
         self._source_id = source_id
+        # sensor_name will be persisted in the session, so we will only have this on restart
         self._sensor_name = sensor_name
         self._host_name = host_name
         self._frame_size = frame_size
@@ -83,7 +85,9 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
 
         if self.online:
             self._sensor_name = self.sensor.name
+            self._source_id = self.sensor.uuid
             self._host_name = self.sensor.host_name
+            logger.debug("Tried to recover sensor, but already online? name={} id={} host={}".format(self._sensor_name, self._source_id, self._host_name))
             return
         if self._host_name and self._sensor_name:
             for sensor in network.sensors.values():
@@ -96,14 +100,18 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
                     )
                     if self.online:
                         self._sensor_name = self.sensor.name
+                        self._source_id = self.sensor.uuid
                         self._host_name = self.sensor.host_name
+                        logger.debug("Recovered with specific sensor name={} id={} host={}".format(self._sensor_name, self._source_id, self._host_name))
                         break
         else:
             for s_id in network.sensors:
                 self.sensor = network.sensor(s_id, callbacks=(self.on_notification,))
                 if self.online:
                     self._sensor_name = self.sensor.name
+                    self._source_id = self.sensor.uuid
                     self._host_name = self.sensor.host_name
+                    logger.debug("Recovered with any sensor name={} id={} host={}".format(self._sensor_name, self._source_id, self._host_name))
                     break
 
     @property
