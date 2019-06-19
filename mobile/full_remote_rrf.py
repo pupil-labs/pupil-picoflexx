@@ -4,7 +4,6 @@ import time
 from typing import Optional
 
 import ndsi
-import zstd
 from ndsi.sensor import Sensor, NotDataSubSupportedError
 
 from camera_models import load_intrinsics
@@ -141,9 +140,7 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
                 meta_data = struct.unpack("<LLLLdLL", data_msg[1])
                 print(meta_data)
 
-                decmp = zstd.decompress(data_msg[2])
-
-                return meta_data, rrf_ndsi_spec.decode_frame(meta_data[0], decmp)
+                return meta_data, rrf_ndsi_spec.decode_frame(meta_data[0], data_msg[2])
         else:
             raise ndsi.StreamError('Operation timed out.')
 

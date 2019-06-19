@@ -1,5 +1,6 @@
 import zlib
 
+import zstd
 import numpy as np
 
 from picoflexx.frames import IRFrame, DepthFrame
@@ -12,6 +13,7 @@ FLAG_ALL = FLAG_IR | FLAG_POINTCLOUD | FLAG_NOISE | FLAG_CONFIDENCE
 
 FLAG_STRIP = 1 << 4
 FLAG_COMPRESSED = 1 << 5
+FLAG_COMPRESSED_ZSTD = 1 << 6
 
 
 def _types_from_flags(flags: int):
@@ -82,6 +84,12 @@ def decode_frame(flags: int, data: bytearray) -> np.ndarray:
     if flags & FLAG_COMPRESSED != 0:
         obj = zlib.decompressobj()
         decompressed_data = obj.decompress(data) + obj.flush()
+
+        print("Decompressed: {}/{} = {:.2f}".format(len(data), len(decompressed_data), len(data) / len(decompressed_data)))
+        data = decompressed_data
+
+    if flags & FLAG_COMPRESSED_ZSTD != 0:
+        decompressed_data = zstd.decompress(data)
 
         print("Decompressed: {}/{} = {:.2f}".format(len(data), len(decompressed_data), len(data) / len(decompressed_data)))
         data = decompressed_data
