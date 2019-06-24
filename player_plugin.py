@@ -17,7 +17,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
     uniqueness = "by_class"
     icon_chr = chr(0xE886)
     icon_font = "pupil_icons"
-    expected_app = "player"
+    expected_app = {"player", "exporter"}
 
     def __init__(self, g_pool, **kwargs):
         super().__init__(g_pool)
@@ -28,7 +28,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.frame_offset = 0  # type: int
         self._found_frame_offset = False
 
-        if self.g_pool.app != self.expected_app:
+        if self.g_pool.app not in self.expected_app:
             self.gl_display = self._abort
             logger.error("Expected app {!r} instead of {!r}!.".format(
                 self.expected_app,
