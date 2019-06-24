@@ -61,7 +61,8 @@ class PicoflexxCommon(Plugin):
 
         self._recent_depth_frame = None  # type: Optional[DepthFrame]
         self._recent_frame = None  # type: Optional[IRFrame]
-        self._camera_render_size = glfw.glfwGetWindowSize(g_pool.main_window)  # capture doesn't provide this in g_pool like player does
+        # capture doesn't provide this in g_pool like player does, main_window isn't present during export
+        self._camera_render_size = glfw.glfwGetWindowSize(g_pool.main_window) if hasattr(g_pool, 'main_window') else None
         self.current_exposure = 0  # type: int
 
         self.glfont = fontstash.Context()
