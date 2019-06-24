@@ -27,6 +27,8 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.recording_replay = RoyaleReplayDevice()
         self.frame_offset = 0  # type: int
         self._found_frame_offset = False
+        meta_info = self.g_pool.meta_info
+        self.offset = float(meta_info.get('Royale Timestamp Offset', 0))
 
         if self.g_pool.app not in self.expected_app:
             self.gl_display = self._abort
@@ -49,14 +51,12 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.g_pool.plugins.clean()
 
     def _find_frame_offset(self) -> int:
-        meta_info = self.g_pool.meta_info
-        offset = meta_info.get('Royale Timestamp Offset', None)
         capture = self.g_pool.capture  # type: File_Source
 
-        if offset is None:
+        if self.offset == 0:
             return 0
 
-        dec_offset = Decimal(offset)
+        dec_offset = Decimal(self.offset)
 
         def compare_offsets(av, rrf):
             target_entry = capture.videoset.lookup[av]
@@ -118,6 +118,9 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
                 # depth data appears to arrive within ~9-12 microseconds
                 self._recent_frame, self._recent_depth_frame = self.recording_replay.get_frame()
                 self.current_exposure = self._recent_depth_frame.exposure_times[1]
+
+                self._recent_frame.timestamp += self.offset
+                self._recent_depth_frame.timestamp += self.offset
 
             events["depth_frame"] = self._recent_depth_frame
 
