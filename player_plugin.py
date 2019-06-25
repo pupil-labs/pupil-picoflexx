@@ -1,11 +1,10 @@
+import bisect
 import logging
 import os
-from decimal import Decimal
-
-from pyglui import ui
 
 import gl_utils
 from picoflexx.royale import RoyaleReplayDevice
+from picoflexx.royale.rrf_utils import RrfHelper
 from video_capture import File_Source
 from .common import PicoflexxCommon
 from .utils import append_depth_preview_menu
@@ -25,8 +24,6 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.menu = None
 
         self.recording_replay = RoyaleReplayDevice()
-        self.frame_offset = 0  # type: int
-        self._found_frame_offset = False
 
         if self.g_pool.app not in self.expected_app:
             self.gl_display = self._abort
@@ -45,71 +42,30 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             logger.error("There is no pointcloud in this recording.")
             return
 
+        self.rrf_helper = RrfHelper(cloud_path)
         self.recording_replay.initialize(cloud_path)
 
     def _abort(self, _=None):
         self.alive = False
         self.g_pool.plugins.clean()
 
-    def _find_frame_offset(self) -> int:
-        capture = self.g_pool.capture  # type: File_Source
-
-        if self.offset == 0:
-            return 0
-
-        dec_offset = Decimal(self.offset)
-
-        def compare_offsets(av, rrf):
-            target_entry = capture.videoset.lookup[av]
-            _, av_frame_idx, av_frame_ts = target_entry
-
-            self.recording_replay.seek(rrf)
-            rrf_ts = Decimal(self.recording_replay.get_frame()[0].timestamp)
-            av_in_unix = Decimal(av_frame_ts) - dec_offset
-
-            return abs(av_in_unix - rrf_ts)
-
-        best_diff = compare_offsets(0, 0)
-
-        rrf_offset = 0
-        for i in range(1, min(45 * 5, self.recording_replay.frame_count())):
-            diff = compare_offsets(0, i)
-
-            if diff < best_diff:
-                best_diff = diff
-                rrf_offset = i
-            else:
-                break
-
-        if rrf_offset != 0:
-            return -rrf_offset
-
-        # check if RRF started earlier than world.mp4
-        av_offset = 0
-        for i in range(1, min(45 * 5, capture.get_frame_count())):
-            diff = compare_offsets(i, 0)
-
-            if diff < best_diff:
-                best_diff = diff
-                av_offset = i
-            else:
-                break
-
-        return av_offset
-
     def recent_events(self, events):
         frame = events.get("frame")
         if not frame:
             return
 
-        if not self._found_frame_offset:
-            self.frame_offset = self._find_frame_offset()
-            self._found_frame_offset = True
-            print('Frame offset: {}'.format(self.frame_offset))
-
         capture = self.g_pool.capture  # type: File_Source
         target_entry = capture.videoset.lookup[capture.current_frame_idx]
-        true_frame = target_entry[1] + self.frame_offset
+
+        target_ts = target_entry[2] - self.offset
+        i_right = bisect.bisect_right(self.rrf_helper.frame_timestamps, target_ts)
+
+        diffs = [
+            (di, target_ts - self.rrf_helper.frame_timestamps[i_right + di])
+            for di in range(-2, 3)
+        ]
+        best = min(diffs, key=lambda x: abs(x[1]))
+        true_frame = i_right + best[0]
 
         if 0 <= true_frame < self.recording_replay.frame_count():
             if true_frame != self.recording_replay.current_frame() \
@@ -145,7 +101,6 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.add_menu()
         self.menu.label = self.pretty_class_name
 
-        self.menu.append(ui.Slider("frame_offset", self, min=-15, max=15, label="Frame offset"))
         append_depth_preview_menu(self)
 
     def cleanup(self):
