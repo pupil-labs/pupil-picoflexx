@@ -27,8 +27,6 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.recording_replay = RoyaleReplayDevice()
         self.frame_offset = 0  # type: int
         self._found_frame_offset = False
-        meta_info = self.g_pool.meta_info
-        self.offset = float(meta_info.get('Royale Timestamp Offset', 0))
 
         if self.g_pool.app not in self.expected_app:
             self.gl_display = self._abort
@@ -37,6 +35,9 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
                 self.g_pool.app,
             ))
             return
+
+        meta_info = self.g_pool.meta_info
+        self.offset = float(meta_info.get('Royale Timestamp Offset', 0))
 
         cloud_path = os.path.join(self.g_pool.rec_dir, 'pointcloud.rrf')
         if not os.path.exists(cloud_path):
