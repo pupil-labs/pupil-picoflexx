@@ -256,19 +256,6 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         return frames
 
-    # @frame_size.setter
-    # def frame_size(self, new_size):
-    #     # closest match for size
-    #     sizes = [abs(r[0] - new_size[0]) for r in self.frame_sizes]
-    #     best_size_idx = sizes.index(min(sizes))
-    #     size = self.frame_sizes[best_size_idx]
-    #     if size != new_size:
-    #         logger.warning(
-    #             "%s resolution capture mode not available. Selected %s."
-    #             % (new_size, size)
-    #         )
-    #     self.make_img(size)
-
     @property
     def frame_rates(self):
         return 1, self.camera.get_max_frame_rate() if self.online else 30
