@@ -7,7 +7,17 @@ from ..utils import get_hue_color_map, MICRO_TO_SECONDS
 
 
 class DepthFrame(object):
+    """
+    Contains data relating to a given depth frame, essentially providing a
+    wrapper around the information inside of a roypy DepthData object.
+    """
+
     def __init__(self, depth_data):
+        """
+        :param depth_data: either a DepthData object from roypy, or a dict
+        containing equivalent information.
+        """
+
         if type(depth_data) is dict:
             self.timestamp = depth_data["timestamp"]
             self._data = depth_data["_data"]
@@ -33,6 +43,12 @@ class DepthFrame(object):
 
     @property
     def bgr(self):
+        """
+        Notably, this may be modified by other plugins
+
+        :return: The colored depth image
+        """
+
         if self._depth_img is None:
             depth_values = self.true_depth.reshape(self.height, self.width)
             depth_values = (2 ** 16) * depth_values / depth_values.max()
@@ -41,6 +57,19 @@ class DepthFrame(object):
         return self._depth_img
 
     def get_color_mapped(self, hue_near: float, hue_far: float, dist_near: float, dist_far: float, use_true_depth: bool):
+        """
+        Colorizes the depth image using interpolated hue values against the
+        depth data, optionally using the "true" depth instead of the z-value.
+
+        :param hue_near: Hue value [0-1] to use for near distances
+        :param hue_far: Hue value [0-1] to use for far distances
+        :param dist_near: Distance to consider near
+        :param dist_far: Distance to consider far
+        :param use_true_depth: Whether to use the "true" depth (point to point)
+         instead of the z-value (plane to plane)
+        :return: The hue color mapped image using the given parameters
+        """
+
         if use_true_depth:
             original_depth = self.true_depth.reshape(self.height, self.width)
         else:
@@ -50,12 +79,22 @@ class DepthFrame(object):
 
     @property
     def gray(self):
+        """
+        :return: The depth image converted to gray scale.
+        """
+
         if self._gray is None:
             self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         return self._gray
 
     @property
     def img(self):
+        """
+        Notably, this may be modified by other plugins
+
+        :return: The colored depth image
+        """
+
         return self.bgr
 
     @property
