@@ -14,6 +14,23 @@ def roypy_wrap(
         level: int = logging.WARNING,
         **kwargs
 ) -> Tuple[Optional[RuntimeError], Optional[int]]:
+    """
+    Wrap a call to roypy catching errors from roypy and (optionally) reraising
+    them after logging.
+
+    By default, will ensure the call returned a successful status.
+
+    :param func: roypy function to execute
+    :param args: Arguments to pass to the function
+    :param check_status: Whether to check the status returned by the function
+    (default: True)
+    :param tag: (Optional) Name of the function to be used when logging
+    :param reraise: Whether to reraise any errors from roypy (default: False)
+    :param level: The logging level to log messages on
+    :param kwargs: Any kwargs to pass to the roypy function
+    :return:
+    """
+
     func_name = tag or getattr(func, '__name__', None) or 'Unknown function'
 
     try:
