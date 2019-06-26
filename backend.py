@@ -25,6 +25,7 @@ from video_capture.base_backend import Base_Manager, Base_Source, Playback_Sourc
 logger = logging.getLogger(__name__)
 
 
+# noinspection PyPep8Naming
 class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
     name = "Picoflexx"
 
@@ -48,6 +49,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         self._ui_exposure = None
         self._ui_usecase = None
+        self._switch_record_pointcloud = None
         self.current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
 
@@ -77,8 +79,6 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         if not self._current_exposure_mode and self.current_exposure != 0:
             self.set_exposure(self.current_exposure)
-
-        self._online = True
 
         self.load_camera_state()
 
