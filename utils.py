@@ -5,62 +5,10 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from pyglui import ui
-
-from plugin import Plugin
 
 MICRO_TO_SECONDS = 1e-6
 
 logger = logging.getLogger(__name__)
-
-
-def append_depth_preview_menu(plugin: Plugin):
-    text = ui.Info_Text(
-        "Enabling Preview Depth will display a colourised version of the data "
-        "based on the depth. Disabling the option will display the "
-        "according IR image." +
-        ("Independent of which option is selected, the IR image stream will "
-         "be stored to `world.mp4` during a recording."
-         if plugin.g_pool.app == 'capture' else "")
-    )
-    plugin.menu.append(text)
-    plugin.menu.append(ui.Switch("preview_depth", plugin, label="Preview Depth"))
-
-    depth_preview_menu = ui.Growing_Menu("Depth preview settings")
-    depth_preview_menu.collapsed = True
-    depth_preview_menu.append(
-        ui.Info_Text("Set hue and distance ranges for the depth preview.")
-    )
-    depth_preview_menu.append(
-        ui.Slider("hue_near", plugin, min=0.0, max=1.0, label="Near Hue")
-    )
-    depth_preview_menu.append(
-        ui.Slider("hue_far", plugin, min=0.0, max=1.0, label="Far Hue")
-    )
-    depth_preview_menu.append(ui.Button("Fit distance (15th and 85th percentile)", lambda: _fit_distance(plugin)))
-    depth_preview_menu.append(
-        ui.Slider("dist_near", plugin, min=0.0, max=4.8, label="Near Distance (m)")
-    )
-    depth_preview_menu.append(
-        ui.Slider("dist_far", plugin, min=0.2, max=5.0, label="Far Distance (m)")
-    )
-    depth_preview_menu.append(ui.Switch("preview_true_depth", plugin, label="Preview using linalg distance"))
-
-    plugin.menu.append(depth_preview_menu)
-
-
-def _fit_distance(plugin: Plugin):
-    if not plugin.recent_depth_frame:
-        logger.warning("No recent frame, can't fit hue.")
-        return
-
-    if plugin.preview_true_depth:
-        depth_data = plugin.recent_depth_frame.true_depth
-    else:
-        depth_data = plugin.recent_depth_frame._data.z
-
-    near, far = np.percentile(depth_data, (15, 85))
-    plugin.dist_near, plugin.dist_far = float(near), float(far)
 
 
 def find_setting_source(g_pool):

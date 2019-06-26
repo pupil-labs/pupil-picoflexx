@@ -21,7 +21,6 @@ from picoflexx.common import PicoflexxCommon
 from picoflexx.royale import RoyaleCameraDevice
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
-from .utils import append_depth_preview_menu
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +129,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
                 )
             )
 
-            append_depth_preview_menu(self)
+            self.append_depth_preview_menu()
 
             self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)

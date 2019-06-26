@@ -1,3 +1,4 @@
+import logging
 from builtins import NotImplementedError
 from typing import Optional, Tuple
 
@@ -13,6 +14,8 @@ from methods import denormalize, normalize
 from plugin import Plugin
 from .frames import DepthFrame, IRFrame
 from .utils import clamp
+
+logger = logging.getLogger(__name__)
 
 
 def indicators_for(near, far, width, ignore_clip: bool = False):
@@ -253,6 +256,53 @@ class PicoflexxCommon(Plugin):
             "dist_far": self.dist_far,
             "preview_true_depth": self.preview_true_depth,
         }
+
+    def append_depth_preview_menu(self):
+        text = ui.Info_Text(
+            "Enabling Preview Depth will display a colourised version of the data "
+            "based on the depth. Disabling the option will display the "
+            "according IR image." +
+            ("Independent of which option is selected, the IR image stream will "
+             "be stored to `world.mp4` during a recording."
+             if self.g_pool.app == 'capture' else "")
+        )
+        self.menu.append(text)
+        self.menu.append(ui.Switch("preview_depth", self, label="Preview Depth"))
+
+        depth_preview_menu = ui.Growing_Menu("Depth preview settings")
+        depth_preview_menu.collapsed = True
+        depth_preview_menu.append(
+            ui.Info_Text("Set hue and distance ranges for the depth preview.")
+        )
+        depth_preview_menu.append(
+            ui.Slider("hue_near", self, min=0.0, max=1.0, label="Near Hue")
+        )
+        depth_preview_menu.append(
+            ui.Slider("hue_far", self, min=0.0, max=1.0, label="Far Hue")
+        )
+        depth_preview_menu.append(ui.Button("Fit distance (15th and 85th percentile)", lambda: self._fit_distance()))
+        depth_preview_menu.append(
+            ui.Slider("dist_near", self, min=0.0, max=4.8, label="Near Distance (m)")
+        )
+        depth_preview_menu.append(
+            ui.Slider("dist_far", self, min=0.2, max=5.0, label="Far Distance (m)")
+        )
+        depth_preview_menu.append(ui.Switch("preview_true_depth", self, label="Preview using linalg distance"))
+
+        self.menu.append(depth_preview_menu)
+
+    def _fit_distance(self):
+        if not self.recent_depth_frame:
+            logger.warning("No recent frame, can't fit hue.")
+            return
+
+        if self.preview_true_depth:
+            depth_data = self.recent_depth_frame.true_depth
+        else:
+            depth_data = self.recent_depth_frame._data.z
+
+        near, far = np.percentile(depth_data, (15, 85))
+        self.dist_near, self.dist_far = float(near), float(far)
 
     def _generate_color_bar_texture(self, width: int = 300):
         glEnable(GL_TEXTURE_1D)

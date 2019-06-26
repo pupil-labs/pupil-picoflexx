@@ -7,7 +7,6 @@ from picoflexx.royale import RoyaleReplayDevice
 from picoflexx.royale.rrf_utils import RrfHelper
 from video_capture import File_Source
 from .common import PicoflexxCommon
-from .utils import append_depth_preview_menu
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +100,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.add_menu()
         self.menu.label = self.pretty_class_name
 
-        append_depth_preview_menu(self)
+        self.append_depth_preview_menu()
 
     def cleanup(self):
         if self.recording_replay is not None:
