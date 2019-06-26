@@ -4,7 +4,17 @@ from ..utils import MICRO_TO_SECONDS
 
 
 class IRFrame(object):
+    """
+    Contains data relating to a given ir frame, essentially providing a
+    wrapper around the information inside of a Royale IrFrame object.
+    """
+
     def __init__(self, ir_data):
+        """
+        :param ir_data: either a PyIrFrame object from roypycy, or a dict
+        containing equivalent information.
+        """
+
         if type(ir_data) is dict:
             self.timestamp = ir_data["timestamp"]
             self._ir_data = None
@@ -29,16 +39,35 @@ class IRFrame(object):
 
     @property
     def img(self):
+        """
+        Notably, this may be modified by other plugins. As such we return the
+        bgr version so others may use colors when modifying it.
+
+        :return: The infrared image
+        """
+
         return self.bgr
 
     @property
     def gray(self):
+        """
+        Notably, this may be modified by other plugins
+
+        :return: The infrared image
+        """
+
         if self._ir_img is None:
             self._ir_img = self.data.reshape(self.shape)
         return self._ir_img
 
     @property
     def bgr(self):
+        """
+        Notably, this may be modified by other plugins
+
+        :return: The infrared image
+        """
+
         if self._ir_img_bgr is None:
             self._ir_img_bgr = cv2.cvtColor(self.gray, cv2.COLOR_GRAY2BGR)
         return self._ir_img_bgr
