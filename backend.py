@@ -12,6 +12,7 @@ See COPYING and COPYING.LESSER for license details.
 import logging
 import os
 from time import time
+from typing import Optional
 
 from pyglui import ui
 
@@ -19,6 +20,7 @@ import csv_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from picoflexx.common import PicoflexxCommon
 from picoflexx.royale import RoyaleCameraDevice
+from royale.backend import FramePair
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
 
@@ -131,7 +133,8 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
             self.append_depth_preview_menu()
 
-            self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
+            self._switch_record_pointcloud = ui.Switch("record_pointcloud", self,
+                                                       label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
 
             self.load_camera_state()
@@ -140,6 +143,13 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             self.menu.append(text)
 
     def load_camera_state(self):
+        """
+        Obtain the current usecase, exposure mode and exposure limits from the
+        camera.
+
+        Do nothing if we're not online.
+        """
+
         if not self.online:
             logger.error("Can't get state, not online")
             return
@@ -172,21 +182,38 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             return
 
         if notification["subject"] == "picoflexx.set_exposure":
+            # When the user drags the exposure slider, we set a delayed
+            # notification before we actually set it. As the camera freaks out
+            # if we ask it to change exposure too often.
+
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
+            # Disable the "Record RRF" and the Usecase drop down while a
+            # recording is in progress.
             self._switch_record_pointcloud.read_only = True
             self._ui_usecase.read_only = True
             self.frame_count = -1
 
             self.start_pointcloud_recording(notification["rec_path"])
         elif notification["subject"] == "recording.stopped":
+            # Re-enable the "Record RRF" and the Usecase drop down now that
+            # the recording has finished.
             self._switch_record_pointcloud.read_only = False
             self._ui_usecase.read_only = False
 
             self.stop_pointcloud_recording()
+
+            # Append some information about plugin settings to info.csv in the
+            # recording.
             self.append_recording_metadata(notification["rec_path"])
 
     def start_pointcloud_recording(self, rec_loc):
+        """
+        Start an rrf recording if the user has requested it.
+
+        :param rec_loc: Folder of the recording
+        """
+
         if not self.record_pointcloud:
             return
 
@@ -194,6 +221,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.camera.start_recording(video_path)
 
     def stop_pointcloud_recording(self):
+        """
+        Stop recording an rrf if the user had requested we record one.
+        """
+
         if not self.record_pointcloud:
             return
 
@@ -235,7 +266,15 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             if self._current_exposure_mode:  # auto exposure
                 self.current_exposure = frames.depth.exposure_times[1]
 
-    def get_frames(self):
+    def get_frames(self) -> Optional[FramePair]:
+        """
+        Obtain the next FramePair, if one is available.
+
+        Adjusting the timestamps of the frames using the timestamp offset.
+
+        :return: The next FramePair
+        """
+
         frames = self.camera.get_frame(block=True, timeout=0.02)
         if frames is None:
             return
