@@ -24,6 +24,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
 
         self.recording_replay = RoyaleReplayDevice()
 
+        # Abort if the plugin is enabled in an unexpected app (Capture)
         if self.g_pool.app not in self.expected_app:
             self.gl_display = self._abort
             logger.error("Expected app {!r} instead of {!r}!.".format(
@@ -56,9 +57,13 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         capture = self.g_pool.capture  # type: File_Source
         target_entry = capture.videoset.lookup[capture.current_frame_idx]
 
+        # Find the index of the rrf frame with closest timestamp (best frame
+        # should be i_right or i_right-1).
         target_ts = target_entry[2] - self.offset
         i_right = bisect.bisect_right(self.rrf_helper.frame_timestamps, target_ts)
 
+        # Calculate timestamp differences for the surrounding frames so we can
+        # select the optimal frame.
         diffs = [
             (di, target_ts - self.rrf_helper.frame_timestamps[i_right + di])
             for di in range(-2, 3)
@@ -66,6 +71,8 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         best = min(diffs, key=lambda x: abs(x[1]))
         true_frame = i_right + best[0]
 
+        # Ensure the rrf frame we've selected falls within the bounds of the
+        # recording.
         if 0 <= true_frame < self.recording_replay.frame_count():
             if true_frame != self.recording_replay.current_frame() \
                     or self._recent_depth_frame is None:
