@@ -40,6 +40,8 @@ class RoyaleCameraDevice:
             # can sporadically claim "Camera is disconnected"
             self.start_capture()
         except RuntimeError as e:
+            import traceback
+            traceback.print_exc()
             return
 
     def close(self):
