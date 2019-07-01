@@ -65,7 +65,9 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         # Calculate timestamp differences for the surrounding frames so we can
         # select the optimal frame.
         diffs = [
-            (di, target_ts - self.rrf_helper.frame_timestamps[i_right + di])
+            (di,
+             target_ts - self.rrf_helper.frame_timestamps[
+                 max(0, min(i_right + di, self.recording_replay.frame_count() - 1))])
             for di in range(-2, 3)
         ]
         best = min(diffs, key=lambda x: abs(x[1]))
