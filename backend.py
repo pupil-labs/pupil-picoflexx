@@ -20,9 +20,9 @@ import csv_utils
 from camera_models import Radial_Dist_Camera, Dummy_Camera
 from picoflexx.common import PicoflexxCommon
 from picoflexx.royale import RoyaleCameraDevice
-from royale.backend import FramePair
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
+from .frames.depth_data_listener import FramePair
 
 logger = logging.getLogger(__name__)
 
