@@ -18,7 +18,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
     expected_app = {"player", "exporter"}
 
     def __init__(self, g_pool, **kwargs):
-        super().__init__(g_pool)
+        super().__init__(g_pool, **kwargs)
         self.order = 0.001  # Ensure we're after FileSource but before anything else
         self.menu = None
 
