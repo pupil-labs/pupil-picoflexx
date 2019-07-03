@@ -49,6 +49,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.record_pointcloud = record_pointcloud
         self.royale_timestamp_offset = None
 
+        self._last_frame_time = time()
+        self._missed_frame_count = 0
+        self._reconnection_attempts = 0
+
         self._ui_exposure = None
         self._ui_usecase = None
         self._switch_record_pointcloud = None
@@ -70,7 +74,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.camera.initialize()
 
         if not self.camera.is_connected():
-            logger.info("Camera not connected")
+            logger.debug("Camera not connected")
             return
 
         # Apply settings
@@ -277,7 +281,18 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         frames = self.camera.get_frame(block=True, timeout=0.02)
         if frames is None:
+            self._missed_frame_count += 1
+
+            if self._missed_frame_count > 45 or time() - self._last_frame_time > 5:
+                self.attempt_reconnect()
+
+                # Reset reconnect timers
+                self._missed_frame_count = 0
+                self._last_frame_time = time()
             return
+
+        self._missed_frame_count = 0
+        self._last_frame_time = time()
 
         if self.royale_timestamp_offset is None:
             # use a constant offset so timestamps from the RRF can be matched
@@ -358,6 +373,16 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
                 },
                 append=True,
             )
+
+    def attempt_reconnect(self):
+        logger.debug("attempt_reconnect()")
+
+        if self.camera is None:
+            logger.warning("Camera wasn't connected at all?")
+            return
+
+        self._reconnection_attempts += 1
+        self.init_device()
 
 
 class Picoflexx_Manager(Base_Manager):

@@ -22,6 +22,8 @@ class RoyaleCameraDevice:
         self.cached_exposure_mode = None
 
     def initialize(self):
+        self.close()
+
         cam_manager = roypy.CameraManager()
         try:
             cam_id = cam_manager.getConnectedCameraList()[0]
