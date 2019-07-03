@@ -79,13 +79,20 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             return False
 
         # Apply settings
-        self.set_exposure_mode(self._current_exposure_mode)
+        wanted_exposure_mode = self._current_exposure_mode
+        # Cache the exposure mode as setting certain use cases will override it
+        # e.g. Low Noise Extended
 
         if self.selected_usecase is not None:
             self.set_usecase(self.selected_usecase)
 
+        self.set_exposure_mode(wanted_exposure_mode)
+
         if not self._current_exposure_mode and self.current_exposure != 0:
             self.set_exposure(self.current_exposure)
+            self.notify_all(
+                {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": self.current_exposure}
+            )
 
         self.load_camera_state()
 
