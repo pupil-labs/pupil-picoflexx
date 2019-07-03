@@ -21,7 +21,7 @@ class RoyaleCameraDevice:
 
         self.cached_exposure_mode = None
 
-    def initialize(self):
+    def initialize(self) -> bool:
         self.close()
 
         cam_manager = roypy.CameraManager()
@@ -29,7 +29,7 @@ class RoyaleCameraDevice:
             cam_id = cam_manager.getConnectedCameraList()[0]
         except IndexError:
             logger.error("No Pico Flexx camera connected")
-            return
+            return False
 
         self.camera_id = cam_id
         self._camera = cam_manager.createCamera(cam_id)
@@ -44,7 +44,9 @@ class RoyaleCameraDevice:
         except RuntimeError as e:
             import traceback
             traceback.print_exc()
-            return
+            return False
+
+        return True
 
     def close(self):
         if self._camera is not None:

@@ -70,12 +70,13 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             **super(Picoflexx_Source, self).get_init_dict(),
         )
 
-    def init_device(self):
-        self.camera.initialize()
+    def init_device(self) -> bool:
+        if not self.camera.initialize():
+            return False
 
         if not self.camera.is_connected():
             logger.debug("Camera not connected")
-            return
+            return False
 
         # Apply settings
         self.set_exposure_mode(self._current_exposure_mode)
@@ -87,6 +88,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             self.set_exposure(self.current_exposure)
 
         self.load_camera_state()
+
+        self.notify_all({"subject": "picoflexx.reconnected"})
+
+        return True
 
     def init_ui(self):  # was gui
         self.add_menu()
@@ -381,8 +386,13 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             logger.warning("Camera wasn't connected at all?")
             return
 
+        if self._reconnection_attempts == 0:
+            self.notify_all({"subject": "picoflexx.disconnected"})
+
         self._reconnection_attempts += 1
-        self.init_device()
+        if self.init_device():
+            logger.info('Reconnected after {} attempts!'.format(self._reconnection_attempts))
+            self._reconnection_attempts = 0
 
 
 class Picoflexx_Manager(Base_Manager):
