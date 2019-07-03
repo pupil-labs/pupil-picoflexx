@@ -50,14 +50,33 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         self.royale_timestamp_offset = None
 
         self._last_frame_time = time()
+        """
+        Timestamp of the last successful frame.
+        """
+
         self._missed_frame_count = 0
+        """
+        Number of times get_frames has timed out since the last success.
+        """
+
         self._reconnection_attempts = 0
+        """
+        Number of times reconnection has been attempted, since connection was
+        lost
+        """
+
+        self._recording_reconnection_count = 0
+        """
+        Number of times camera has been reconnected this recording, used to
+        name the multiple pointcloud.rrf files, if needed.
+        """
 
         self._ui_exposure = None
         self._ui_usecase = None
         self._switch_record_pointcloud = None
         self.current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
+        self._recording_directory = None
 
         self.init_device()
 
@@ -96,6 +115,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
 
         self.load_camera_state()
 
+        self.on_reconnection()
         self.notify_all({"subject": "picoflexx.reconnected"})
 
         return True
@@ -210,7 +230,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             self._ui_usecase.read_only = True
             self.frame_count = -1
 
-            self.start_pointcloud_recording(notification["rec_path"])
+            self._recording_directory = notification["rec_path"]
+            self._recording_reconnection_count = 0
+
+            self.start_pointcloud_recording(self._recording_directory)
         elif notification["subject"] == "recording.stopped":
             # Re-enable the "Record RRF" and the Usecase drop down now that
             # the recording has finished.
@@ -223,6 +246,18 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             # recording.
             self.append_recording_metadata(notification["rec_path"])
 
+            self._recording_directory = None
+
+    def on_disconnection(self):
+        if self._recording_directory is not None and self.record_pointcloud:
+            self.stop_pointcloud_recording()
+
+    def on_reconnection(self):
+        if self._recording_directory is not None and self.record_pointcloud:
+            self._recording_reconnection_count += 1
+
+            self.start_pointcloud_recording(self._recording_directory)
+
     def start_pointcloud_recording(self, rec_loc):
         """
         Start an rrf recording if the user has requested it.
@@ -233,7 +268,12 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         if not self.record_pointcloud:
             return
 
-        video_path = os.path.join(rec_loc, "pointcloud.rrf")
+        if self._recording_reconnection_count == 0:
+            filename = "pointcloud.rrf"
+        else:
+            filename = "pointcloud_{}.rrf".format(self._recording_reconnection_count)
+
+        video_path = os.path.join(rec_loc, filename)
         self.camera.start_recording(video_path)
 
     def stop_pointcloud_recording(self):
@@ -394,6 +434,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             return
 
         if self._reconnection_attempts == 0:
+            self.on_disconnection()
             self.notify_all({"subject": "picoflexx.disconnected"})
 
         self._reconnection_attempts += 1
