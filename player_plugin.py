@@ -23,6 +23,7 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         self.menu = None
 
         self.recording_replay = RoyaleReplayDevice()
+        self._current_recording_idx = None
 
         # Abort if the plugin is enabled in an unexpected app (Capture)
         if self.g_pool.app not in self.expected_app:
@@ -42,8 +43,45 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
             logger.error("There is no pointcloud in this recording.")
             return
 
-        self.rrf_helper = RrfHelper(cloud_path)
+        self.rrf_entries = list(self._rrf_container_times(0, cloud_path))
+
+        # enumerate all pointclouds in the recording
+        p_idx = 1
+        while True:
+            fn = os.path.join(self.g_pool.rec_dir, 'pointcloud_{}.rrf'.format(p_idx))
+            if not os.path.exists(fn):
+                break
+
+            self.rrf_entries += self._rrf_container_times(p_idx, fn)
+
+            p_idx += 1
+
+        self.rrf_timestamps = list(map(lambda x: x[2], self.rrf_entries))
+
+        logger.info("{} pointclouds present".format(p_idx))
+
+        self.load_recording_container(0)
+
+    def load_recording_container(self, container_idx: int):
+        if self._current_recording_idx == container_idx:
+            return
+
+        logger.info("Switching to container {}".format(container_idx))
+        self._current_recording_idx = container_idx
+
+        if container_idx == 0:
+            filename = "pointcloud.rrf"
+        else:
+            filename = "pointcloud_{}.rrf".format(container_idx)
+
+        cloud_path = os.path.join(self.g_pool.rec_dir, filename)
         self.recording_replay.initialize(cloud_path)
+
+    def _rrf_container_times(self, container_idx: int, path: str):
+        return map(
+            lambda x: (container_idx, x[0], x[1]),
+            enumerate(RrfHelper(path).frame_timestamps)
+        )
 
     def _abort(self, _=None):
         self.alive = False
@@ -57,28 +95,41 @@ class Picoflexx_Player_Plugin(PicoflexxCommon):
         capture = self.g_pool.capture  # type: File_Source
         target_entry = capture.videoset.lookup[capture.current_frame_idx]
 
+        # sometimes the entries representing missing data are `[[entry]]`
+        # instead of just `entry`?
+        if len(target_entry) == 1 or target_entry[0] == -1:
+            self._recent_frame = None
+            self._recent_depth_frame = None
+            return
+
         # Find the index of the rrf frame with closest timestamp (best frame
         # should be i_right or i_right-1).
         target_ts = target_entry[2] - self.offset
-        i_right = bisect.bisect_right(self.rrf_helper.frame_timestamps, target_ts)
+        i_right = bisect.bisect_right(self.rrf_timestamps, target_ts)
 
         # Calculate timestamp differences for the surrounding frames so we can
         # select the optimal frame.
         diffs = [
             (di,
-             target_ts - self.rrf_helper.frame_timestamps[
-                 max(0, min(i_right + di, self.recording_replay.frame_count() - 1))])
+             target_ts - self.rrf_timestamps[
+                 max(0, min(i_right + di, len(self.rrf_entries) - 1))])
             for di in range(-2, 3)
         ]
-        best = min(diffs, key=lambda x: abs(x[1]))
-        true_frame = i_right + best[0]
+        # print(i_right, diffs)
+        best_idx = max(0, min(diffs, key=lambda x: abs(x[1]))[0] + i_right)
+        # print(i_right, best_idx)
+        rrf_entry = self.rrf_entries[best_idx]
+
+        # print(target_entry, rrf_entry)
 
         # Ensure the rrf frame we've selected falls within the bounds of the
         # recording.
-        if 0 <= true_frame < self.recording_replay.frame_count():
-            if true_frame != self.recording_replay.current_frame() \
-                    or self._recent_depth_frame is None:
-                self.recording_replay.seek(true_frame)
+        if 0 <= rrf_entry[1] < self.recording_replay.frame_count():
+            if rrf_entry[1] != self.recording_replay.current_frame() \
+                    or self._recent_depth_frame is None \
+                    or self._current_recording_idx != rrf_entry[0]:
+                self.load_recording_container(rrf_entry[0])
+                self.recording_replay.seek(rrf_entry[1])
 
                 # depth data appears to arrive within ~9-12 microseconds
                 self._recent_frame, self._recent_depth_frame = self.recording_replay.get_frame()
