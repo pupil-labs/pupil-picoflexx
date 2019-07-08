@@ -602,3 +602,7 @@ class Full_Remote_RRF_Manager(Base_Manager):
 
 
 manager_classes.append(Full_Remote_RRF_Manager)
+if hasattr(ndsi.sensor, "SENSOR_TYPE_CLASS_MAP"):
+    ndsi.sensor.SENSOR_TYPE_CLASS_MAP["royale_full"] = Sensor
+else:
+    logger.warning("SENSOR_TYPE_CLASS_MAP not found in ndsi.sensor!")
