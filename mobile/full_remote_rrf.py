@@ -396,7 +396,7 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
 
 
 class Full_Remote_RRF_Manager(Base_Manager):
-    gui_name = "Remote RRF (Full)"
+    gui_name = "Picoflexx Mobile"
     group = 'pupil-picoflexx-v1'
     sensor_type = 'royale_full'
 
