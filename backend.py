@@ -197,7 +197,7 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             # Exposure is implicitly clamped to new max
             self.current_exposure = high
 
-        if getattr(self, 'menu', None) is not None:  # UI is initialized
+        if self._ui_exposure is not None:  # UI is initialized
             # load exposure mode
             self._ui_exposure.read_only = self._current_exposure_mode
 
@@ -226,8 +226,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         elif notification["subject"] == "recording.started":
             # Disable the "Record RRF" and the Usecase drop down while a
             # recording is in progress.
-            self._switch_record_pointcloud.read_only = True
-            self._ui_usecase.read_only = True
+            if self._switch_record_pointcloud is not None:
+                self._switch_record_pointcloud.read_only = True
+            if self._ui_usecase is not None:
+                self._ui_usecase.read_only = True
             self.frame_count = -1
 
             self._recording_directory = notification["rec_path"]
@@ -237,8 +239,10 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
         elif notification["subject"] == "recording.stopped":
             # Re-enable the "Record RRF" and the Usecase drop down now that
             # the recording has finished.
-            self._switch_record_pointcloud.read_only = False
-            self._ui_usecase.read_only = False
+            if self._switch_record_pointcloud is not None:
+                self._switch_record_pointcloud.read_only = False
+            if self._ui_usecase is not None:
+                self._ui_usecase.read_only = False
 
             self.stop_pointcloud_recording()
 
