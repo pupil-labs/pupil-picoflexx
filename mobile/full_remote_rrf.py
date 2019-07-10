@@ -1,4 +1,6 @@
 import logging
+import os
+import pickle
 import struct
 import time
 from typing import Optional
@@ -6,7 +8,7 @@ from typing import Optional
 import ndsi
 from ndsi.sensor import Sensor, NotDataSubSupportedError
 
-from camera_models import load_intrinsics
+from camera_models import load_intrinsics, Dummy_Camera, Radial_Dist_Camera
 from picoflexx import utils
 from picoflexx.common import PicoflexxCommon
 from picoflexx.frames import IRFrame, DepthFrame
@@ -239,6 +241,18 @@ class Full_Remote_RRF_Source(PicoflexxCommon, Base_Source):
             self._intrinsics = load_intrinsics(
                 self.g_pool.user_dir, self.name, self.frame_size
             )
+
+            if type(self._intrinsics) is Dummy_Camera:
+                logger.info("Was dummy camera")
+                saved_fp = os.path.join(self.g_pool.user_dir, "picoflexx_intrinsics")
+
+                if os.path.exists(saved_fp):
+                    with open(saved_fp, "rb") as f:
+                        K, D, self.frame_size, self.name = pickle.load(f)
+                        self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)
+                        logger.info("Loaded from saved")
+                else:
+                    logger.info("No saved intrinsics?")
         return self._intrinsics
 
     @intrinsics.setter

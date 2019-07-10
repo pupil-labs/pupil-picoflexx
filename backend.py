@@ -11,6 +11,7 @@ See COPYING and COPYING.LESSER for license details.
 
 import logging
 import os
+import pickle
 from time import time
 from typing import Optional
 
@@ -412,6 +413,11 @@ class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
             K = [[f_x, 0.0, c_x], [0.0, f_y, c_y], [0.0, 0.0, 1.0]]
             D = k_1, k_2, p_1, p_2, *k_other
             self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)
+
+            with open(os.path.join(self.g_pool.user_dir, "picoflexx_intrinsics"), "wb") as f:
+                pickle.dump([
+                    K, D, self.frame_size, self.name
+                ], f)
         return self._intrinsics
 
     @intrinsics.setter
