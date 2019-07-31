@@ -25,6 +25,11 @@ If the requirements where not installed correctly, you should see the following 
 world - [WARNING] plugin: Failed to load 'picoflexx'. Reason: '<reason>'
 ```
 
+#### Remote RRF / Picoflexx Mobile
+
+1. Ensure `zstd` is available to import by Pupil.
+    * e.g. `pip install --target /path/to/plugins zstd`
+
 ### Compile roypycy extension
 
 Note for Windows users: VS2017 or the [VS2017 Build Tools](https://www.visualstudio.com/downloads/#build-tools-for-visual-studio-2017) will be required to compile the extension.

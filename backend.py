@@ -9,326 +9,117 @@ See COPYING and COPYING.LESSER for license details.
 ---------------------------------------------------------------------------~(*)
 """
 
-import collections
-from time import time
-
-import cv2
 import logging
-import numpy as np
 import os
-import queue
+import pickle
+from time import time
+from typing import Optional
+
 from pyglui import ui
-from typing import Tuple, Optional
 
 import csv_utils
-import cython_methods
-import gl_utils
-from version_utils import VersionFormat
 from camera_models import Radial_Dist_Camera, Dummy_Camera
+from picoflexx.common import PicoflexxCommon
+from picoflexx.royale import RoyaleCameraDevice
 from video_capture import manager_classes
 from video_capture.base_backend import Base_Manager, Base_Source, Playback_Source
-from .utils import append_depth_preview_menu, get_hue_color_map
+from .frames.depth_data_listener import FramePair
 
 logger = logging.getLogger(__name__)
 
-try:
-    from . import roypy as roypy
-    from .roypy_platform_utils import PlatformHelper
-except ImportError:
-    import traceback
 
-    logger.debug(traceback.format_exc())
-    logger.warning("Pico Flexx backend requirements (roypy) not installed properly")
-    raise
-
-assert VersionFormat(roypy.getVersionString()) >= VersionFormat(
-    "3.21.1.70"
-), "roypy out of date, please upgrade to newest version. Have: {}, Want: {}".format(
-    roypy.getVersionString(), "3.21.1.70"
-)
-
-try:
-    from . import roypycy
-except ImportError:
-    import traceback
-
-    logger.debug(traceback.format_exc())
-    logger.warning("Pico Flexx backend requirements (roypycy) not installed properly")
-    raise
-
-FramePair = collections.namedtuple("FramePair", ["ir", "depth"])
-
-MICRO_TO_SECONDS = 1e-6
-
-
-def roypy_wrap(
-        func,
-        *args,
-        check_status: bool = True,
-        tag: str = None,
-        reraise: bool = False,
-        level: int = logging.WARNING,
-        **kwargs
-) -> Tuple[Optional[RuntimeError], Optional[int]]:
-    func_name = tag or getattr(func, '__name__', None) or 'Unknown function'
-
-    try:
-        status = func(*args, **kwargs)
-    except RuntimeError as e:
-        if e.args:
-            logger.log(level, "{}: {}".format(func_name, e.args[0]))
-        else:
-            logger.log(level, "{}: RuntimeError".format(func_name))
-
-        if reraise:
-            raise
-
-        return e, None
-
-    if check_status and status != 0:
-        logger.log(
-            level,
-            "{}: Non-zero return: {} - {}".format(func_name, status, roypy.getStatusString(status))
-        )
-
-        return None, status
-
-
-class IRFrame(object):
-    def __init__(self, ir_data):
-        self._ir_data = ir_data
-        self.timestamp = ir_data.timestamp * MICRO_TO_SECONDS
-        self.width = ir_data.width
-        self.height = ir_data.height
-        self.shape = self.height, self.width
-        self._ir_img = None
-        self._ir_img_bgr = None
-
-        # indicate that the frame does not have a native yuv or jpeg buffer
-        self.yuv_buffer = None
-        self.jpeg_buffer = None
-
-    @property
-    def img(self):
-        return self.bgr
-
-    @property
-    def gray(self):
-        if self._ir_img is None:
-            self._ir_img = self._ir_data.data
-            self._ir_img.shape = self.shape
-        return self._ir_img
-
-    @property
-    def bgr(self):
-        if self._ir_img_bgr is None:
-            self._ir_img_bgr = cv2.cvtColor(self.gray, cv2.COLOR_GRAY2BGR)
-        return self._ir_img_bgr
-
-
-class DepthFrame(object):
-    def __init__(self, depth_data):
-        self.timestamp = roypycy.get_depth_data_ts(depth_data)  # microseconds
-        self.timestamp *= MICRO_TO_SECONDS  # seconds
-        self._data = roypycy.get_backend_data(depth_data)
-        self.exposure_times = depth_data.exposureTimes
-
-        self.height = depth_data.height
-        self.width = depth_data.width
-        self.shape = depth_data.height, depth_data.width, 3
-
-        # indicate that the frame does not have a native yuv or jpeg buffer
-        self.yuv_buffer = None
-        self.jpeg_buffer = None
-
-        self._depth_img = None
-        self._gray = None
-
-    @property
-    def bgr(self):
-        if self._depth_img is None:
-            depth_values = self.true_depth.reshape(self.height, self.width)
-            depth_values = (2 ** 16) * depth_values / depth_values.max()
-            depth_values = depth_values.astype(np.uint16)
-            self._depth_img = cython_methods.cumhist_color_map16(depth_values)
-        return self._depth_img
-
-    def get_color_mapped(self, hue_near: float, hue_far: float, dist_near: float, dist_far: float, use_true_depth: bool):
-        if use_true_depth:
-            original_depth = self.true_depth.reshape(self.height, self.width)
-        else:
-            original_depth = self._data.z.reshape(self.height, self.width)
-
-        return get_hue_color_map(original_depth, hue_near, hue_far, dist_near, dist_far)
-
-    @property
-    def gray(self):
-        if self._gray is None:
-            self._gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-        return self._gray
-
-    @property
-    def img(self):
-        return self.bgr
-
-    @property
-    def confidence(self):
-        return self._data.depthConfidence.reshape(self.height, self.width)
-
-    @property
-    def noise(self):
-        return self._data.noise.reshape(self.height, self.width)
-    
-    @property
-    def true_depth(self):
-        xyz = np.column_stack((self._data.x, self._data.y, self._data.z))
-        return np.linalg.norm(xyz, axis=1)
-
-    @property
-    def dense_pointcloud(self):
-        return self._data[["x", "y", "z"]]
-
-
-class DepthDataListener(roypy.IDepthDataListener):
-    current_index = 0
-
-    def __init__(self, queue):
-        super().__init__()
-        self.queue = queue
-        self._ir_ref = None
-
-        self._data_depth = None
-        self._data_ir = None  # type: roypycy.PyIrImage
-
-    def _check_frame(self):
-        if self._data_depth is None or self._data_ir is None:
-            return
-        if roypycy.get_depth_data_ts(self._data_depth) != self._data_ir.timestamp:
-            return
-
-        try:
-            frame_depth = DepthFrame(self._data_depth)
-            frame_ir = IRFrame(self._data_ir)
-            frame_depth.index = frame_ir.index = self.current_index
-            self.current_index += 1
-
-            self.queue.put(FramePair(ir=frame_ir, depth=frame_depth), block=False)
-        except queue.Full:
-            pass  # dropping frame pair
-        except Exception:
-            import traceback
-
-            traceback.print_exc()
-
-        self._data_depth = None
-        self._data_ir = None
-
-    def onNewData(self, data):
-        self._data_depth = data
-        self._check_frame()
-
-    def onNewIrData(self, data: roypycy.PyIrImage):
-        self._data_ir = data
-        self._check_frame()
-
-    def registerIrListener(self, camera):
-        self._ir_ref = roypycy.register_ir_image_listener(camera, self.onNewIrData)
-
-    def unregisterIrListener(self, camera):
-        if self._ir_ref:
-            roypycy.unregister_ir_image_listener(camera, self._ir_ref, self.onNewData)
-            self._ir_ref = None
-
-
-class Picoflexx_Source(Playback_Source, Base_Source):
+# noinspection PyPep8Naming
+class Picoflexx_Source(PicoflexxCommon, Playback_Source, Base_Source):
     name = "Picoflexx"
 
     def __init__(
-        self,
-        g_pool,
-        auto_exposure=False,
-        preview_depth=True,
-        record_pointcloud=False,
-        current_exposure=0,
-        selected_usecase=None,
-        hue_near=0.0,
-        hue_far=0.75,
-        dist_near=0.14,
-        dist_far=5.0,
-        preview_true_depth=False,
-        *args,
-        **kwargs,
+            self,
+            g_pool,
+            auto_exposure=False,
+            record_pointcloud=False,
+            current_exposure=2000,
+            selected_usecase=None,
+            *args,
+            **kwargs,
     ):
         super().__init__(g_pool, *args, **kwargs)
-        self.camera = None
-        self.queue = queue.Queue(maxsize=1)
-        self.data_listener = DepthDataListener(self.queue)
+        self.camera = RoyaleCameraDevice()
 
         self.selected_usecase = selected_usecase
         self.frame_count = 0
         self.record_pointcloud = record_pointcloud
         self.royale_timestamp_offset = None
 
-        self._recent_frame = None  # type: Optional[IRFrame]
-        self._recent_depth_frame = None  # type: Optional[DepthFrame]
+        self._last_frame_time = time()
+        """
+        Timestamp of the last successful frame.
+        """
+
+        self._missed_frame_count = 0
+        """
+        Number of times get_frames has timed out since the last success.
+        """
+
+        self._reconnection_attempts = 0
+        """
+        Number of times reconnection has been attempted, since connection was
+        lost
+        """
+
+        self._recording_reconnection_count = 0
+        """
+        Number of times camera has been reconnected this recording, used to
+        name the multiple pointcloud.rrf files, if needed.
+        """
 
         self._ui_exposure = None
-        self._current_exposure = current_exposure
+        self._ui_usecase = None
+        self._switch_record_pointcloud = None
+        self.current_exposure = current_exposure
         self._current_exposure_mode = auto_exposure
-        self._preview_depth = preview_depth
-        self._hue_near = hue_near
-        self._hue_far = hue_far
-        self._dist_near = dist_near
-        self._dist_far = dist_far
-        self._preview_true_depth = preview_true_depth
+        self._recording_directory = None
 
         self.init_device()
 
     def get_init_dict(self):
-        return {
-            "preview_depth": self._preview_depth,
-            "record_pointcloud": self.record_pointcloud,
-            "auto_exposure": self._current_exposure_mode,
-            "current_exposure": self._current_exposure,
-            "selected_usecase": self.selected_usecase,
-            "hue_near": self._hue_near,
-            "hue_far": self._hue_far,
-            "dist_near": self._dist_near,
-            "dist_far": self._dist_far,
-            "preview_true_depth": self._preview_true_depth,
-        }
+        return dict(
+            record_pointcloud=self.record_pointcloud,
+            auto_exposure=self._current_exposure_mode,
+            current_exposure=self.current_exposure,
+            selected_usecase=self.selected_usecase,
+            **super(Picoflexx_Source, self).get_init_dict(),
+        )
 
-    def init_device(self):
-        cam_manager = roypy.CameraManager()
-        try:
-            cam_id = cam_manager.getConnectedCameraList()[0]
-        except IndexError:
-            logger.error("No Pico Flexx camera connected")
-            return
+    def init_device(self) -> bool:
+        if not self.camera.initialize():
+            return False
 
-        self.camera_id = cam_id
-        self.camera = cam_manager.createCamera(cam_id)
-        self.camera.initialize()
-        self.camera.registerDataListener(self.data_listener)
-        self.data_listener.registerIrListener(self.camera)
-        try:
-            # can sporadically claim "Camera is disconnected"
-            roypy_wrap(self.camera.startCapture, tag='Failed to start camera', reraise=True, level=logging.ERROR)
-        except RuntimeError as e:
-            return
+        if not self.camera.is_connected():
+            logger.debug("Camera not connected")
+            return False
 
         # Apply settings
-        self.set_exposure_mode(self._current_exposure_mode)
+        wanted_exposure_mode = self._current_exposure_mode
+        # Cache the exposure mode as setting certain use cases will override it
+        # e.g. Low Noise Extended
 
         if self.selected_usecase is not None:
             self.set_usecase(self.selected_usecase)
 
-        if not self._current_exposure_mode and self._current_exposure != 0:
-            self.set_exposure(self._current_exposure)
+        self.set_exposure_mode(wanted_exposure_mode)
 
-        self._online = True
+        if not self._current_exposure_mode and self.current_exposure != 0:
+            self.set_exposure(self.current_exposure)
+            self.notify_all(
+                {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": self.current_exposure}
+            )
 
         self.load_camera_state()
+
+        self.on_reconnection()
+        self.notify_all({"subject": "picoflexx.reconnected"})
+
+        return True
 
     def init_ui(self):  # was gui
         self.add_menu()
@@ -342,25 +133,24 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         self.menu.append(text)
 
         if self.online:
-            use_cases = self.camera.getUseCases()
+            use_cases = self.camera.get_usecases()
             use_cases = [
                 use_cases[uc]
                 for uc in range(use_cases.size())
                 if "MIXED" not in use_cases[uc]
             ]
 
-            self.menu.append(
-                ui.Selector(
-                    "selected_usecase",
-                    selection=use_cases,
-                    getter=lambda: self.selected_usecase,
-                    setter=self.set_usecase,
-                    label="Activate usecase",
-                )
+            self._ui_usecase = ui.Selector(
+                "selected_usecase",
+                selection=use_cases,
+                getter=lambda: self.selected_usecase,
+                setter=self.set_usecase,
+                label="Activate usecase",
             )
+            self.menu.append(self._ui_usecase)
 
             self._ui_exposure = ui.Slider(
-                "_current_exposure",
+                "current_exposure",
                 self,
                 min=0,
                 max=0,
@@ -378,9 +168,10 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 )
             )
 
-            append_depth_preview_menu(self)
+            self.append_depth_preview_menu()
 
-            self._switch_record_pointcloud = ui.Switch("record_pointcloud", self, label="Include 3D pointcloud in recording")
+            self._switch_record_pointcloud = ui.Switch("record_pointcloud", self,
+                                                       label="Include 3D pointcloud in recording")
             self.menu.append(self._switch_record_pointcloud)
 
             self.load_camera_state()
@@ -389,34 +180,38 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self.menu.append(text)
 
     def load_camera_state(self):
+        """
+        Obtain the current usecase, exposure mode and exposure limits from the
+        camera.
+
+        Do nothing if we're not online.
+        """
+
         if not self.online:
             logger.error("Can't get state, not online")
             return
 
-        self.selected_usecase = self.camera.getCurrentUseCase()
+        self.selected_usecase = self.camera.get_current_usecase()
         self._current_exposure_mode = self.get_exposure_mode()
-        exposure_limits = self.camera.getExposureLimits()
-        if self._current_exposure > exposure_limits.second:
+        low, high = self.camera.get_exposure_limits()
+        if self.current_exposure > high:
             # Exposure is implicitly clamped to new max
-            self._current_exposure = exposure_limits.second
+            self.current_exposure = high
 
-        if getattr(self, 'menu', None) is not None:  # UI is initialized
+        if self._ui_exposure is not None:  # UI is initialized
             # load exposure mode
             self._ui_exposure.read_only = self._current_exposure_mode
 
             # Update UI with exposure limits of this use case
-            self._ui_exposure.minimum = exposure_limits.first
-            self._ui_exposure.maximum = exposure_limits.second
+            self._ui_exposure.minimum = low
+            self._ui_exposure.maximum = high
 
     def deinit_ui(self):
         self.remove_menu()
 
     def cleanup(self):
-        if self.camera:
-            if self.camera.isConnected() and self.camera.isCapturing():
-                roypy_wrap(self.camera.stopCapture)
-            self.camera.unregisterDataListener()
-            self.data_listener.unregisterIrListener(self.camera)
+        if self.camera is not None:
+            self.camera.close()
             self.camera = None
 
     def on_notify(self, notification):
@@ -424,58 +219,100 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             return
 
         if notification["subject"] == "picoflexx.set_exposure":
+            # When the user drags the exposure slider, we set a delayed
+            # notification before we actually set it. As the camera freaks out
+            # if we ask it to change exposure too often.
+
             self.set_exposure(notification["exposure"])
         elif notification["subject"] == "recording.started":
-            self._switch_record_pointcloud.read_only = True
+            # Disable the "Record RRF" and the Usecase drop down while a
+            # recording is in progress.
+            if self._switch_record_pointcloud is not None:
+                self._switch_record_pointcloud.read_only = True
+            if self._ui_usecase is not None:
+                self._ui_usecase.read_only = True
+            self.frame_count = -1
 
-            self.start_pointcloud_recording(notification["rec_path"])
+            self._recording_directory = notification["rec_path"]
+            self._recording_reconnection_count = 0
+
+            self.start_pointcloud_recording(self._recording_directory)
         elif notification["subject"] == "recording.stopped":
-            self._switch_record_pointcloud.read_only = False
+            # Re-enable the "Record RRF" and the Usecase drop down now that
+            # the recording has finished.
+            if self._switch_record_pointcloud is not None:
+                self._switch_record_pointcloud.read_only = False
+            if self._ui_usecase is not None:
+                self._ui_usecase.read_only = False
 
             self.stop_pointcloud_recording()
+
+            # Append some information about plugin settings to info.csv in the
+            # recording.
             self.append_recording_metadata(notification["rec_path"])
 
+            self._recording_directory = None
+
+    def on_disconnection(self):
+        if self._recording_directory is not None and self.record_pointcloud:
+            self.stop_pointcloud_recording()
+
+    def on_reconnection(self):
+        if self._recording_directory is not None and self.record_pointcloud:
+            self._recording_reconnection_count += 1
+
+            self.start_pointcloud_recording(self._recording_directory)
+
     def start_pointcloud_recording(self, rec_loc):
+        """
+        Start an rrf recording if the user has requested it.
+
+        :param rec_loc: Folder of the recording
+        """
+
         if not self.record_pointcloud:
             return
 
-        video_path = os.path.join(rec_loc, "pointcloud.rrf")
-        roypy_wrap(self.camera.startRecording, video_path, 0, 0, 0)
+        if self._recording_reconnection_count == 0:
+            filename = "pointcloud.rrf"
+        else:
+            filename = "pointcloud_{}.rrf".format(self._recording_reconnection_count)
+
+        video_path = os.path.join(rec_loc, filename)
+        self.camera.start_recording(video_path)
 
     def stop_pointcloud_recording(self):
+        """
+        Stop recording an rrf if the user had requested we record one.
+        """
+
         if not self.record_pointcloud:
             return
 
-        roypy_wrap(self.camera.stopRecording)
+        self.camera.stop_recording()
 
     def set_usecase(self, usecase):
-        roypy_wrap(self.camera.setUseCase, usecase)
-
-        if not self.camera.isCapturing():
-            roypy_wrap(self.camera.startCapture)
+        self.camera.set_usecase(usecase)
 
         self.load_camera_state()
 
     def set_exposure_delayed(self, exposure):
         # set displayed exposure early, to reduce jankiness while dragging slider
-        self._current_exposure = exposure
+        self.current_exposure = exposure
 
         self.notify_all(
             {"subject": "picoflexx.set_exposure", "delay": 0.3, "exposure": exposure}
         )
 
     def set_exposure(self, exposure):
-        roypy_wrap(self.camera.setExposureTime, exposure)
+        self.camera.set_exposure(exposure)
 
     def get_exposure_mode(self):
-        return self.camera.getExposureMode() == roypy.ExposureMode_AUTOMATIC
+        return self.camera.get_exposure_mode()
 
     def set_exposure_mode(self, exposure_mode):
-        roypy_wrap(
-            self.camera.setExposureMode,
-            roypy.ExposureMode_AUTOMATIC if exposure_mode else roypy.ExposureMode_MANUAL
-        )
-        self._current_exposure_mode = exposure_mode
+        self._current_exposure_mode = self.camera.set_exposure_mode(exposure_mode)
+
         if self._ui_exposure is not None:
             self._ui_exposure.read_only = exposure_mode
 
@@ -488,13 +325,31 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             self._recent_depth_frame = frames.depth
 
             if self._current_exposure_mode:  # auto exposure
-                self._current_exposure = frames.depth.exposure_times[1]
+                self.current_exposure = frames.depth.exposure_times[1]
 
-    def get_frames(self):
-        try:
-            frames = self.queue.get(True, 0.02)
-        except queue.Empty:
+    def get_frames(self) -> Optional[FramePair]:
+        """
+        Obtain the next FramePair, if one is available.
+
+        Adjusting the timestamps of the frames using the timestamp offset.
+
+        :return: The next FramePair
+        """
+
+        frames = self.camera.get_frame(block=True, timeout=0.02)
+        if frames is None:
+            self._missed_frame_count += 1
+
+            if self._missed_frame_count > 45 or time() - self._last_frame_time > 5:
+                self.attempt_reconnect()
+
+                # Reset reconnect timers
+                self._missed_frame_count = 0
+                self._last_frame_time = time()
             return
+
+        self._missed_frame_count = 0
+        self._last_frame_time = time()
 
         if self.royale_timestamp_offset is None:
             # use a constant offset so timestamps from the RRF can be matched
@@ -508,32 +363,13 @@ class Picoflexx_Source(Playback_Source, Base_Source):
         # self.g_pool.get_timestamp() - frames.ir.timestamp
         # Result: ~2-6ms delay depending on selected usecase
 
+        self.frame_count += 1
+
         return frames
 
     @property
-    def frame_size(self):
-        return (
-            (self._recent_frame.width, self._recent_frame.height)
-            if self._recent_frame
-            else (1280, 720)
-        )
-
-    # @frame_size.setter
-    # def frame_size(self, new_size):
-    #     # closest match for size
-    #     sizes = [abs(r[0] - new_size[0]) for r in self.frame_sizes]
-    #     best_size_idx = sizes.index(min(sizes))
-    #     size = self.frame_sizes[best_size_idx]
-    #     if size != new_size:
-    #         logger.warning(
-    #             "%s resolution capture mode not available. Selected %s."
-    #             % (new_size, size)
-    #         )
-    #     self.make_img(size)
-
-    @property
     def frame_rates(self):
-        return 1, self.camera.getMaxFrameRate() if self.online else 30
+        return 1, self.camera.get_max_frame_rate() if self.online else 30
 
     @property
     def frame_sizes(self):
@@ -541,7 +377,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def frame_rate(self):
-        return self.camera.getFrameRate() if self.online else 30
+        return self.camera.get_frame_rate() if self.online else 30
 
     @frame_rate.setter
     def frame_rate(self, new_rate):
@@ -553,7 +389,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 "%sfps capture mode not available at (%s) on 'PicoFlexx Source'. Selected %sfps. "
                 % (new_rate, self.frame_size, rate)
             )
-        roypy_wrap(self.camera.setFrameRate, rate)
+        self.camera.set_frame_rate(rate)
 
     @property
     def jpeg_support(self):
@@ -561,7 +397,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
 
     @property
     def online(self):
-        return self.camera and self.camera.isConnected() and self.camera.isCapturing()
+        return self.camera and self.camera.is_connected() and self.camera.is_capturing()
 
     @property
     def intrinsics(self):
@@ -569,37 +405,24 @@ class Picoflexx_Source(Playback_Source, Base_Source):
             return self._intrinsics or Dummy_Camera(self.frame_size, self.name)
 
         if self._intrinsics is None or self._intrinsics.resolution != self.frame_size:
-            lens_params = roypycy.get_lens_parameters(self.camera)
-            c_x, c_y = lens_params["principalPoint"]
-            f_x, f_y = lens_params["focalLength"]
-            p_1, p_2 = lens_params["distortionTangential"]
-            k_1, k_2, *k_other = lens_params["distortionRadial"]
+            lens_params = self.camera.get_lens_parameters()
+            c_x, c_y = lens_params.principal_point
+            f_x, f_y = lens_params.focal_length
+            p_1, p_2 = lens_params.distortion_tangential
+            k_1, k_2, *k_other = lens_params.distortion_radial
             K = [[f_x, 0.0, c_x], [0.0, f_y, c_y], [0.0, 0.0, 1.0]]
             D = k_1, k_2, p_1, p_2, *k_other
             self._intrinsics = Radial_Dist_Camera(K, D, self.frame_size, self.name)
+
+            with open(os.path.join(self.g_pool.user_dir, "picoflexx_intrinsics"), "wb") as f:
+                pickle.dump([
+                    K, D, self.frame_size, self.name
+                ], f)
         return self._intrinsics
 
     @intrinsics.setter
     def intrinsics(self, model):
         logger.error("Picoflexx backend does not support setting intrinsics manually")
-
-    def gl_display(self):
-        if self.online:
-            if self._preview_depth and self._recent_depth_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_depth_frame.get_color_mapped(
-                    self._hue_near, self._hue_far, self._dist_near, self._dist_far, self._preview_true_depth
-                ))
-            elif self._recent_frame is not None:
-                self.g_pool.image_tex.update_from_ndarray(self._recent_frame.img)
-            gl_utils.glFlush()
-            gl_utils.make_coord_system_norm_based()
-            self.g_pool.image_tex.draw()
-        else:
-            super().gl_display()
-
-        gl_utils.make_coord_system_pixel_based(
-            (self.frame_size[1], self.frame_size[0], 3)
-        )
 
     def append_recording_metadata(self, rec_path):
         meta_info_path = os.path.join(rec_path, "info.csv")
@@ -612,6 +435,22 @@ class Picoflexx_Source(Playback_Source, Base_Source):
                 },
                 append=True,
             )
+
+    def attempt_reconnect(self):
+        logger.debug("attempt_reconnect()")
+
+        if self.camera is None:
+            logger.warning("Camera wasn't connected at all?")
+            return
+
+        if self._reconnection_attempts == 0:
+            self.on_disconnection()
+            self.notify_all({"subject": "picoflexx.disconnected"})
+
+        self._reconnection_attempts += 1
+        if self.init_device():
+            logger.info('Reconnected after {} attempts!'.format(self._reconnection_attempts))
+            self._reconnection_attempts = 0
 
 
 class Picoflexx_Manager(Base_Manager):
@@ -644,9 +483,6 @@ class Picoflexx_Manager(Base_Manager):
             )
         else:
             logger.warning("Pico Flexx backend is not supported in the eye process.")
-
-    def deinit_ui(self):
-        self.remove_menu()
 
     def recent_events(self, events):
         pass
