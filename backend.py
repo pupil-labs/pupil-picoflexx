@@ -482,7 +482,7 @@ class Picoflexx_Source(Playback_Source, Base_Source):
     def recent_events(self, events):
         frames = self.get_frames()
         if frames:
-            events["frame"] = events["ir_frame"] = frames.ir
+            events["frame"] = frames.ir
             events["depth_frame"] = frames.depth
             self._recent_frame = frames.ir
             self._recent_depth_frame = frames.depth
